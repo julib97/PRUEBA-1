@@ -72,35 +72,31 @@ PAGE = """
 
   {% if step1 %}
   <div class="section">
-    <h3>Resultados (RT Externa → Dmax/sesión HDR)</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Órgano</th><th>D2cc RT ext (Gy)</th>
-          <th>EQD2 RT ext (Gy)</th>
-          <th>Límite EQD2</th><th>D máx/sesión (Gy)</th><th>Estado</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in results %}
-        <tr>
-          <td>{{r.roi}}</td>
-          <td>{{r.D_ext if r.D_ext is not none else "-"}}</td>
-          <td>{{r.fx_rt}}</td>
-          <td>{{"%.2f"|format(r.d_rt)}}</td>
-          <td>{{"%.2f"|format(r.ab)}}</td>
-          <td>{{"%.2f"|format(r.eqd2_ext)}}</td>
-          <td>{{"%.2f"|format(r.hdr_prev)}}</td>
-          <td>{{"%.2f"|format(r.used)}}</td>
-          <td>{{"%.2f"|format(r.limit)}}</td>
-          <td>{{"%.2f"|format(r.rem)}}</td>
-          <td>{{r.N}}</td>
-          <td>{{"%.2f"|format(r.dmax_session)}}</td>
-          <td>{% if r.flag == "ok" %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Sin margen</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <h3>Resultados (RT Externa → Dmax/sesión HDR)</h3>
+<table class="table">
+  <thead>
+    <tr>
+      <th>Órgano</th>
+      <th>D2cc RT ext (Gy)</th>
+      <th>EQD2 RT ext (Gy)</th>
+      <th>Límite EQD2</th>
+      <th>D máx/sesión (Gy)</th>
+      <th>Estado</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results %}
+    <tr>
+      <td>{{r.roi}}</td>
+      <td>{{r.D_ext if r.D_ext is not none else "-"}}</td>
+      <td>{{"%.2f"|format(r.eqd2_ext)}}</td>
+      <td>{{"%.2f"|format(r.limit)}}</td>
+      <td>{{"%.2f"|format(r.dmax_session)}}</td>
+      <td>{% if r.flag == "ok" %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Sin margen</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
     <p class="note">EQD2 EBRT = D_total · (1 + d_rt/αβ) / (1 + 2/αβ). Dmax/sesión resuelve la cuadrática con el remanente.</p>
   </div>
 
