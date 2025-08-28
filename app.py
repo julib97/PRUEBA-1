@@ -76,9 +76,9 @@ PAGE = """
     <table class="table">
       <thead>
         <tr>
-          <th>Órgano</th><th>D2cc RT ext (Gy)</th><th>fx_rt</th><th>d_rt (Gy/fx)</th>
-          <th>α/β</th><th>EQD2 RT ext (Gy)</th><th>EQD2 HDR previo (Gy)</th>
-          <th>EQD2 usada</th><th>Límite EQD2</th><th>EQD2 remanente</th><th>N HDR</th><th>D máx/sesión (Gy)</th><th>Estado</th>
+          <th>Órgano</th><th>D2cc RT ext (Gy)</th>
+          <th>EQD2 RT ext (Gy)</th>
+          <th>Límite EQD2</th><th>D máx/sesión (Gy)</th><th>Estado</th>
         </tr>
       </thead>
       <tbody>
