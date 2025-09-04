@@ -1,5 +1,9 @@
 import math, re
 from flask import Flask, request, render_template_string
+import pytesseract  # ← no usamos OCR aquí, solo queda configurado si más adelante lo necesitás
+
+# Ajustá la ruta si tu tesseract.exe está en otro lugar (esta es la que vos encontraste)
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\Julieta\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
 app = Flask(__name__)
 
@@ -30,7 +34,17 @@ textarea{min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 .btn{appearance:none;border:none;padding:12px 16px;border-radius:12px;font-weight:600;cursor:pointer}
 .btn-primary{background:linear-gradient(180deg,var(--acc),var(--acc2));color:#05232f}
 .table{width:100%;border-collapse:collapse;margin-top:16px}
-.table th,.table td{padding:10px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left;font-size:14px}
+.table th,
+.table td {
+  padding:10px;
+  border:1px solid rgba(255,255,255,.15); /* línea fina en todas las celdas */
+  text-align:left;
+  font-size:14px;
+}
+.table {
+  border-collapse: collapse;
+  border:1px solid rgba(255,255,255,.25); /* borde exterior un poquito más fuerte */
+}
 .section{margin-top:22px}
 .section h3{margin:6px 0 8px 0;color:#a5f3fc;font-size:18px}
 .note{color:#94a3b8;font-size:12px}
@@ -38,14 +52,25 @@ textarea{min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 .ok{color:var(--ok);font-weight:600}
 .fixed{opacity:.9}
 .small{font-size:12px;color:var(--muted)}
+.patient-info {
+  font-size: 16px;
+  color: #fb923c;
+  font-weight: 600;
+  margin: 6px 0 12px 0;
+}
+.table th[colspan] {
+  text-align: center;
+}
 """
+
 
 PAGE = """
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RT Externa → Dmax HDR + Plan Real</title><style>{{css}}</style></head>
 <body><div class="container"><div class="card">
   <h1><span style="color:#67e8f9">Pipeline</span> <span class="badge">DVH → Resultados → Oncentra</span></h1>
-  <p class="lead">Paso 1: cargá el <b>DVH acumulado</b> para obtener el D2cc de RT externa y el <b>Dmax/sesión sugerido</b>. Paso 2: pegá la tabla del planificador (Oncentra) y calculamos el cuadro final.</p>
+  <p class="lead">Paso 1: cargá el <b>DVH acumulado de Eclipse</b> para obtener el D2cc de RT externa y el <b>EQD2 EBRT</b>. Paso 2: cargá el <b>DVH de HDR de Oncentra</b> (acumulado, Gy/ccm) para extraer la <b>D@2cc</b> por órgano, calcular el <b>EQD2 por fracción</b>, y armar el cuadro final con <b>Total (Gy)</b>, <b>EQD2 HDR</b> y <b>EQD2 TOTAL</b>.</p>
+
 
   <!-- PASO 1 -->
   <form method="post" action="/cargar_dvh" enctype="multipart/form-data">
@@ -73,41 +98,47 @@ PAGE = """
   {% if step1 %}
   <div class="section">
     <h3>Resultados (RT Externa → Dmax/sesión HDR)</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Órgano</th><th>D2cc RT ext (Gy)</th><th>fx_rt</th><th>d_rt (Gy/fx)</th>
-          <th>α/β</th><th>EQD2 RT ext (Gy)</th><th>EQD2 HDR previo (Gy)</th>
-          <th>EQD2 usada</th><th>Límite EQD2</th><th>EQD2 remanente</th><th>N HDR</th><th>D máx/sesión (Gy)</th><th>Estado</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in results %}
-        <tr>
-          <td>{{r.roi}}</td>
-          <td>{{r.D_ext if r.D_ext is not none else "-"}}</td>
-          <td>{{r.fx_rt}}</td>
-          <td>{{"%.2f"|format(r.d_rt)}}</td>
-          <td>{{"%.2f"|format(r.ab)}}</td>
-          <td>{{"%.2f"|format(r.eqd2_ext)}}</td>
-          <td>{{"%.2f"|format(r.hdr_prev)}}</td>
-          <td>{{"%.2f"|format(r.used)}}</td>
-          <td>{{"%.2f"|format(r.limit)}}</td>
-          <td>{{"%.2f"|format(r.rem)}}</td>
-          <td>{{r.N}}</td>
-          <td>{{"%.2f"|format(r.dmax_session)}}</td>
-          <td>{% if r.flag == "ok" %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Sin margen</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% if patient_name or patient_id %}
+  <p class="patient-info">
+  <b>Paciente:</b> {{ patient_name or "—" }} &nbsp;&nbsp;
+  <b>ID:</b> {{ patient_id or "—" }}
+</p>
+{% endif %}
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Órgano</th>
+      <th>D2cc RT ext (Gy)</th>
+      <th>EQD2 RT ext (Gy)</th>
+      <th>Límite EQD2</th>
+      <th>D máx/sesión (Gy)</th>
+      <th>Estado</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results %}
+    <tr>
+      <td>{{r.roi}}</td>
+      <td>{{r.D_ext if r.D_ext is not none else "-"}}</td>
+      <td>{{"%.2f"|format(r.eqd2_ext)}}</td>
+      <td>{{"%.2f"|format(r.limit)}}</td>
+      <td>{{"%.2f"|format(r.dmax_session)}}</td>
+      <td>{% if r.flag == "ok" %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Sin margen</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
     <p class="note">EQD2 EBRT = D_total · (1 + d_rt/αβ) / (1 + 2/αβ). Dmax/sesión resuelve la cuadrática con el remanente.</p>
   </div>
 
   <!-- PASO 2 -->
-  <form method="post" action="/calcular_hdr">
+    <!-- PASO 2 -->
+  <form method="post" action="/calcular_hdr" enctype="multipart/form-data">
     <input type="hidden" name="fx_rt" value="{{fx_rt}}">
     <input type="hidden" name="n_hdr" value="{{n_hdr}}">
+    <input type="hidden" name="patient_name" value="{{patient_name or ''}}">
+    <input type="hidden" name="patient_id"   value="{{patient_id or ''}}">
     {% for r in results %}
       <input type="hidden" name="EBRT_{{loop.index0}}_roi" value="{{r.roi}}">
       <input type="hidden" name="EBRT_{{loop.index0}}_eqd2" value="{{'%.4f'|format(r.eqd2_ext)}}">
@@ -115,43 +146,58 @@ PAGE = """
     {% endfor %}
 
     <div class="section">
-      <h3>Paso 2 — Pegar tabla del planificador (HDR OAR @ 2&nbsp;cc)</h3>
-      <p class="small">Formato: "ROI | Dose [%] | Dose [Gy] | Volume [%] | Volume [ccm]". Tomamos filas con Volume≈2.00&nbsp;cc.</p>
-      <textarea name="planner_paste" placeholder="ROI    Dose[%]   Dose[Gy]   Volume[%]   Volume[ccm]
-VEJIGA  65.03     5.2026     0.91       2.00
-RECTO   63.26     5.0607     2.64       2.00
-SIGMOIDE 41.78    3.3422     5.44       2.00"></textarea>
+      <h3>Paso 2 — Cargar DVH de HDR (Oncentra)</h3>
+      <p class="small">Subí el DVH de Oncentra en modo <b>acumulado</b> (Gy/ccm). Tomamos <b>D@2cc</b> para VEJIGA, RECTO, SIGMOIDE e INTESTINO, y lo replicamos en {{n_hdr}} fracciones.</p>
+      <label>Archivo DVH HDR (texto .txt de Oncentra)
+        <input class="input" type="file" name="hdrfile" accept=".txt,.dvh,.csv,.log,.dat,.*">
+      </label>
       <div class="row" style="margin-top:12px">
         <button class="btn btn-primary" type="submit">Calcular</button>
       </div>
     </div>
   </form>
+
   {% endif %}
 
-  {% if plan_real %}
+{% if plan_real %}
   <div class="section">
     <h3>Plan Real Completo RT Externa + HDR</h3>
+    {% if patient_name or patient_id %}
+      <p class="patient-info">
+        <b>Paciente:</b> {{ patient_name or "—" }} &nbsp;&nbsp;
+        <b>ID:</b> {{ patient_id or "—" }}
+      </p>
+    {% endif %}
     <table class="table">
       <thead>
         <tr>
-          <th>ROI</th>
-          <th>D2cc EBRT (Gy)</th>
-          <th>EQD2 EBRT (Gy)</th>
-          <th>Dose HDR@2cc (Gy)</th>
-          <th>EQD2 HDR (Gy)</th>
-          <th>EQD2 TOTAL (Gy)</th>
-          <th>Límite (Gy)</th>
-          <th>Estado</th>
+          <th rowspan="2">ROI</th>
+          <th colspan="{{n_hdr*2}}">Fracciones</th>
+          <th rowspan="2">Total (Gy)</th>
+          <th rowspan="2">EQD2 HDR (Gy)</th>
+          <th rowspan="2">EQD2 EBRT (Gy)</th>
+          <th rowspan="2">EQD2 TOTAL (Gy)</th>
+          <th rowspan="2">Límite (Gy)</th>
+          <th rowspan="2">Estado</th>
+        </tr>
+        <tr>
+          {% for i in range(1, n_hdr+1) %}
+            <th>Dosis {{i}}</th>
+            <th>EQD2 {{i}}</th>
+          {% endfor %}
         </tr>
       </thead>
       <tbody>
         {% for r in plan_real %}
         <tr>
           <td>{{r.roi}}</td>
-          <td>{{"%.2f"|format(r.d2cc_ebrt)}}</td>
+          {% for i in range(n_hdr) %}
+            <td>{{"%.2f"|format(r.doses[i])}}</td>
+            <td>{{"%.2f"|format(r.eqd2s[i])}}</td>
+          {% endfor %}
+          <td>{{"%.2f"|format(r.total_dose)}}</td>
+          <td>{{"%.2f"|format(r.eqd2_hdr_total)}}</td>
           <td>{{"%.2f"|format(r.eqd2_ebrt)}}</td>
-          <td>{{"%.2f"|format(r.hdr_dose)}}</td>
-          <td>{{"%.2f"|format(r.eqd2_hdr)}}</td>
           <td>{{"%.2f"|format(r.eqd2_total)}}</td>
           <td>{{"%.2f"|format(r.limit)}}</td>
           <td>{% if r.eqd2_total <= r.limit %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Excede</span>{% endif %}</td>
@@ -159,11 +205,11 @@ SIGMOIDE 41.78    3.3422     5.44       2.00"></textarea>
         {% endfor %}
       </tbody>
     </table>
-    <p class="note">Para EQD2 HDR usamos α/β=3 y consideramos la dosis pegada como una sesión (podemos ampliar a múltiples fracciones cuando quieras).</p>
+    <p class="note">EQD2 por fracción con α/β=3. “Total (Gy)” suma las dosis por fracción; “EQD2 HDR” suma los EQD2 por fracción; “EQD2 TOTAL” = EQD2 EBRT + EQD2 HDR.</p>
   </div>
-  {% endif %}
-
+{% endif %}
 </div></div></body></html>
+
 """
 
 # ====== Física ======
@@ -210,6 +256,57 @@ def parse_eclipse_dvh_text(txt):
                 data.append((d, v))
         if data: structures[name] = data
     return structures
+def parse_oncentra_dvh_text(txt):
+    """
+    Devuelve {name:[(dose_Gy, vol_cc), ...]} para archivos DVH de Oncentra.
+    Formato esperado:
+      ROI: <nombre>
+      **************************
+      Bin   Dose   Volume
+      ...
+    """
+    structures = {}
+    for m in re.finditer(r"ROI:\s*([^\r\n]+)\s*\n\*+\s*\n(.*?)(?=\nROI:|\Z)", txt, re.S | re.I):
+        name = m.group(1).strip()
+        block = m.group(2)
+        data = []
+        for line in block.splitlines():
+            nums = re.findall(r"[-+]?\d*[\.,]?\d+", line)
+            if len(nums) >= 3:
+                d = float(nums[-2].replace(",", "."))  # Dose [Gy]
+                v = float(nums[-1].replace(",", "."))  # Volume [ccm]
+                data.append((d, v))
+        if data:
+            structures[name] = data
+    return structures
+
+
+def parse_patient_meta(txt):
+    """Extrae nombre e ID de paciente del header del DVH si están presentes.
+       Ejemplo:
+         Patient Name         : RUIZ, ANGELICA (321I) (613602), (10-49217)
+         Patient ID           : 613602
+    """
+    name, pid = None, None
+
+    # Nombre
+    m = re.search(r'Patient\s*Name\s*:\s*([^\r\n]+)', txt, re.I)
+    if m:
+        raw_name = m.group(1).strip()
+        # limpiar paréntesis y comas sobrantes
+        clean = re.sub(r'\s*\([^)]*\)', '', raw_name).strip()
+        clean = re.sub(r'\s*,\s*$', '', clean)
+        name = clean if clean else raw_name
+
+    # ID
+    m = re.search(r'Patient\s*ID\s*:\s*([^\r\n]+)', txt, re.I)
+    if m:
+        raw_id = m.group(1).strip()
+        mnum = re.search(r'[\w-]+', raw_id)
+        pid = mnum.group(0) if mnum else raw_id
+
+    return name, pid
+
 
 def dose_at_volume_cc(data, target_cc):
     for i, (d1, v1) in enumerate(data):
@@ -261,9 +358,13 @@ def cargar_dvh():
     fx_rt = int(fnum(request.form.get("fx_rt"),25))
     n_hdr = int(fnum(request.form.get("n_hdr"),3))
     d2_autofill = {}
+    patient_name, patient_id = None, None
     file = request.files.get("dvhfile")
     if file and file.filename:
         txt = file.read().decode("latin1", errors="ignore")
+        # Extraer paciente/ID
+        patient_name, patient_id = parse_patient_meta(txt)
+
         tables = parse_eclipse_dvh_text(txt)
         # mapear a nuestros 4 órganos
         idx = {name.lower(): name for name in tables.keys()}
@@ -292,12 +393,14 @@ def cargar_dvh():
                            used=used,limit=limit,rem=rem,N=n_hdr,dmax_session=dmax,flag=flag))
 
     return render_template_string(PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr,
-                                  step1=True, results=results)
+                                  step1=True, results=results,
+                                  patient_name=patient_name, patient_id=patient_id)
 
 @app.route("/calcular_hdr", methods=["POST"])
 def calcular_hdr():
     fx_rt = int(fnum(request.form.get("fx_rt"),25))
     n_hdr = int(fnum(request.form.get("n_hdr"),3))
+
     # recuperar EBRT del paso 1
     ebrt=[]
     for i in range(4):
@@ -308,35 +411,66 @@ def calcular_hdr():
     limits_map={ "Vejiga":LIMITS_EQD2["VEJIGA"], "Recto":LIMITS_EQD2["RECTO"],
                  "Sigmoide":LIMITS_EQD2["SIGMOIDE"], "Intestino":LIMITS_EQD2["INTESTINO"] }
 
-    # parsear pegado
-    planner_rows=parse_planner_paste(request.form.get("planner_paste",""))
+    # paciente/ID (pasados desde paso 1)
+    patient_name = request.form.get("patient_name") or None
+    patient_id   = request.form.get("patient_id") or None
 
-    # armar plan real (simple: tomamos la dosis pegada como UNA sesión)
-    plan=[]
-    Row=lambda **k:type("Row",(),k)
-    # indexar HDR por órgano mapeado
-    hdr_by = {}
-    for r in planner_rows:
-        if r["mapped"]:
-            hdr_by[r["mapped"]]=r["dose_gy"]
+    # === NUEVO: leer DVH HDR de Oncentra ===
+    hdrfile = request.files.get("hdrfile")
+    hdr_d2 = {}  # D@2cc por órgano (Gy)
+    if hdrfile and hdrfile.filename:
+        txt = hdrfile.read().decode("latin1", errors="ignore")
+        tables = parse_oncentra_dvh_text(txt)
+
+        # mapear nombres -> nuestras 4 keys
+        idx = {name.lower(): name for name in tables.keys()}
+        def find_match(target):
+            for low, orig in idx.items():
+                if any(p.search(low) for p in ALIASES[target]): return orig
+            return None
+
+        for key in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
+            nm = find_match(key)
+            d2 = dose_at_volume_cc(tables[nm], 2.0) if nm else None
+            if d2 is not None:
+                hdr_d2[key] = round(d2, 2)
 
     # map EN/ES para mostrar como en paso1
     es_name={"VEJIGA":"Vejiga","RECTO":"Recto","SIGMOIDE":"Sigmoide","INTESTINO":"Intestino"}
 
+    # construir plan con N fracciones: repetimos D@2cc y calculamos EQD2 por fracción
+    plan=[]
+    Row=lambda **k:type("Row",(),k)
     for key in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
-        display=es_name[key]
-        hdr_dose = hdr_by.get(key)
-        # buscar eqd2_ebrt del paso1 por display
-        eqd2_ebrt = next((v for (roi,v) in ebrt if roi==display), 0.0)
-        d2cc_ebrt = None  # no lo necesitamos para el cuadro final, pero podés incluirlo
-        eqd2_hdr = eqd2_from_single_fraction(hdr_dose,3.0) if hdr_dose is not None else 0.0
-        eqd2_total = eqd2_ebrt + eqd2_hdr
-        limit = limits_map[display]
-        plan.append(Row(roi=display, d2cc_ebrt=(0.0 if d2cc_ebrt is None else d2cc_ebrt),
-                        eqd2_ebrt=eqd2_ebrt, hdr_dose=(hdr_dose or 0.0),
-                        eqd2_hdr=eqd2_hdr, eqd2_total=eqd2_total, limit=limit))
+        display = es_name[key]
+        dose = hdr_d2.get(key, 0.0)
 
-    # Para re-render, reconstruimos resultados de paso1 (solo para que permanezcan visibles)
+        # columnas por fracción
+        doses = [dose]*n_hdr
+        eqd2s = [eqd2_from_single_fraction(d, 3.0) for d in doses]
+
+        # totales
+        total_dose = sum(doses)
+        eqd2_hdr_total = sum(eqd2s)
+
+        # EBRT de paso 1 (eqd2 acumulado previo)
+        eqd2_ebrt = next((v for (roi,v) in ebrt if roi==display), 0.0)
+
+        eqd2_total = eqd2_ebrt + eqd2_hdr_total
+        limit = limits_map[display]
+
+        plan.append(Row(
+            roi=display,
+            doses=doses,
+            eqd2s=eqd2s,
+            total_dose=total_dose,
+            eqd2_hdr_total=eqd2_hdr_total,
+            eqd2_ebrt=eqd2_ebrt,
+            eqd2_total=eqd2_total,
+            limit=limit
+        ))
+
+    # Re-render de resultados paso 1 (para que queden arriba)
     results=[]
     for (roi,eqd2) in ebrt:
         limit = limits_map[roi]; rem=max(0.0,limit-eqd2); dmax=solve_hdr_dose_per_session(rem,n_hdr,3.0)
@@ -345,8 +479,16 @@ def calcular_hdr():
                                       "rem":rem,"N":n_hdr,"dmax_session":dmax,
                                       "flag":"ok" if rem>0 else "warn"}))
 
+    # Render
     return render_template_string(PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr,
-                                  step1=True, results=results, plan_real=plan)
-
+                                  step1=True, results=results, plan_real=plan,
+                                  patient_name=patient_name, patient_id=patient_id)
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    print(">> Booting Flask on http://127.0.0.1:5000  (use_reloader=False)")
+    try:
+        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    except Exception as e:
+        import traceback
+        print(">> Flask crashed!")
+        traceback.print_exc()
+        raise
