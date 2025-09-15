@@ -16,6 +16,18 @@ ALIASES = {
     "RECTO":[re.compile(p,re.I) for p in [r"\brectum\b", r"\brecto\b"]],
     "SIGMOIDE":[re.compile(p,re.I) for p in [r"\bsigmoid\b", r"\bbowel[_\s-]?large\b", r"\bsigmoide\b"]],
     "INTESTINO":[re.compile(p,re.I) for p in [r"\bbowel[_\s-]?small\b", r"\bsmall\s*bowel\b", r"\bintestin[oa]"]],
+    # === NUEVO: alias para CTV ===
+    
+    "CTV":[re.compile(p,re.I) for p in [
+        r"\bCTV\b",
+        r"\bCTV[_\s-]*HR\b",
+        r"\bHR[_\s-]*CTV\b",
+        r"\bCTVHR\b",
+         r"\bCTV[_\s-]*(uterus|utero|útero)\b",   # ← agrega estas variantes
+        r"\bvolumen\s*cl[ií]nico"
+    ]]
+
+    
 }
 
 # ====== Helpers de UI ======
@@ -117,17 +129,56 @@ PAGE = """
     </tr>
   </thead>
   <tbody>
-    {% for r in results %}
-    <tr>
-      <td>{{r.roi}}</td>
-      <td>{{r.D_ext if r.D_ext is not none else "-"}}</td>
-      <td>{{"%.2f"|format(r.eqd2_ext)}}</td>
-      <td>{{"%.2f"|format(r.limit)}}</td>
-      <td>{{"%.2f"|format(r.dmax_session)}}</td>
-      <td>{% if r.flag == "ok" %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Sin margen</span>{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
+  {% for r in results %}
+  <tr>
+    <td>{{ r.roi }}</td>
+
+   <td>
+  {{ r.D_ext if r.D_ext is not none else "-" }}
+  {% if r.is_ctv_d95 %}<span class="small">(D95)</span>{% endif %}
+</td>
+
+<td>
+  {% if r.eqd2_ext is not none %}
+    {{ "%.2f"|format(r.eqd2_ext) }}
+  {% else %}
+    —
+  {% endif %}
+</td>
+
+
+<td>
+  {% if r.is_ctv_d95 %}
+    —
+  {% else %}
+    {{ "%.2f"|format(r.limit) }}
+  {% endif %}
+</td>
+
+<td>
+  {% if r.is_ctv_d95 %}
+    —
+  {% else %}
+    {{ "%.2f"|format(r.dmax_session) }}
+  {% endif %}
+</td>
+
+<td>
+  {% if r.is_ctv_d95 %}
+    —
+  {% else %}
+    {% if r.flag == "ok" %}
+      <span class="ok">✅ Con margen</span>
+    {% else %}
+      <span class="warn">⚠️ Sin margen</span>
+    {% endif %}
+  {% endif %}
+</td>
+
+  </tr>
+  {% endfor %}
+</tbody>
+
 </table>
     <p class="note">EQD2 EBRT = D_total · (1 + d_rt/αβ) / (1 + 2/αβ). Dmax/sesión resuelve la cuadrática con el remanente.</p>
   </div>
@@ -139,11 +190,26 @@ PAGE = """
     <input type="hidden" name="n_hdr" value="{{n_hdr}}">
     <input type="hidden" name="patient_name" value="{{patient_name or ''}}">
     <input type="hidden" name="patient_id"   value="{{patient_id or ''}}">
-    {% for r in results %}
-      <input type="hidden" name="EBRT_{{loop.index0}}_roi" value="{{r.roi}}">
-      <input type="hidden" name="EBRT_{{loop.index0}}_eqd2" value="{{'%.4f'|format(r.eqd2_ext)}}">
-      <input type="hidden" name="EBRT_{{loop.index0}}_limit" value="{{'%.2f'|format(r.limit)}}">
-    {% endfor %}
+   {% for r in results if not r.is_ctv_d95 %}
+  <input type="hidden" name="EBRT_{{loop.index0}}_roi"   value="{{ r.roi }}">
+  <input type="hidden" name="EBRT_{{loop.index0}}_eqd2"  value="{{ ('%.4f'|format(r.eqd2_ext)) if r.eqd2_ext is not none else '' }}">
+  <input type="hidden" name="EBRT_{{loop.index0}}_limit" value="{{ ('%.2f'|format(r.limit))    if r.limit    is not none else '' }}">
+  <input type="hidden" name="EBRT_{{loop.index0}}_dext"  value="{{ r.D_ext if r.D_ext is not none else '' }}">
+{% endfor %}
+
+{# CTV (D95) SOLO una vez #}
+{% set ctv_list = results | selectattr('is_ctv_d95') | list %}
+{% if ctv_list %}
+  {% if ctv_list[0].D_ext %}
+    <input type="hidden" name="EBRT_CTV_D95"  value="{{ ctv_list[0].D_ext }}">
+  {% endif %}
+  {% if ctv_list[0].eqd2_ext is not none %}
+    <input type="hidden" name="EBRT_CTV_EQD2" value="{{ '%.4f'|format(ctv_list[0].eqd2_ext) }}">
+  {% endif %}
+{% endif %}
+
+
+
 
     <div class="section">
       <h3>Paso 2 — Cargar DVH de HDR (Oncentra)</h3>
@@ -199,8 +265,25 @@ PAGE = """
           <td>{{"%.2f"|format(r.eqd2_hdr_total)}}</td>
           <td>{{"%.2f"|format(r.eqd2_ebrt)}}</td>
           <td>{{"%.2f"|format(r.eqd2_total)}}</td>
-          <td>{{"%.2f"|format(r.limit)}}</td>
-          <td>{% if r.eqd2_total <= r.limit %}<span class="ok">✅ Con margen</span>{% else %}<span class="warn">⚠️ Excede</span>{% endif %}</td>
+          <td>
+  {% if r.limit is not none %}
+    {{"%.2f"|format(r.limit)}}
+  {% else %}
+    —
+  {% endif %}
+</td>
+<td>
+  {% if r.is_ctv %}
+    —
+  {% else %}
+    {% if r.eqd2_total <= r.limit %}
+      <span class="ok">✅ Con margen</span>
+    {% else %}
+      <span class="warn">⚠️ Excede</span>
+    {% endif %}
+  {% endif %}
+</td>
+
         </tr>
         {% endfor %}
       </tbody>
@@ -322,7 +405,7 @@ def map_roi(name):
     low = name.lower()
     for k, pats in ALIASES.items():
         if any(p.search(low) for p in pats): return k
-    for k in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
+    for k in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO","CTV"):
         if k.lower() in low: return k
     return None
 
@@ -341,6 +424,39 @@ def parse_planner_paste(text):
         rows.append({"roi":roi, "dose_gy":dose_gy, "vol_cc":vol_cc, "mapped":map_roi(roi)})
     return rows
 
+# === NUEVO: Dosis en el p% del volumen (p.ej., D90) con registro más cercano e interpolación ===
+def dose_at_percent_volume(data, percent):
+    """
+    data: lista de (dose_Gy, vol_cc) de un DVH acumulado (volumen decrece con la dosis).
+    percent: porcentaje de volumen (ej. 90 para D90).
+    Devuelve (dose_Gy, Vtotal_cc, Vtarget_cc). Usa interpolación lineal si hay cruce;
+    si no hay cruce, toma el registro más cercano.
+    """
+    if not data: 
+        return None, None, None
+    # Aseguramos orden por dosis ascendente (típico en exportes)
+    data_sorted = sorted(data, key=lambda x: x[0])
+    Vtot = max(v for _, v in data_sorted)
+    Vtarget = Vtot * (percent / 100.0)
+
+    # Primero intentamos con interpolación exacta entre los dos puntos que rodean Vtarget
+    for i in range(1, len(data_sorted)):
+        d0, v0 = data_sorted[i-1]
+        d1, v1 = data_sorted[i]
+        # buscamos cruce: v0 >= Vtarget >= v1 (DVH acumulado: v desciende con dosis)
+        if (v0 >= Vtarget >= v1) or (v1 >= Vtarget >= v0):
+            if v1 == v0:
+                # plano horizontal raro; devolvemos el más cercano por dosis
+                return d1, Vtot, Vtarget
+            frac = (Vtarget - v0) / (v1 - v0)
+            d = d0 + (d1 - d0) * frac
+            return d, Vtot, Vtarget
+
+    # Si no hubo cruce (datos muy gruesos), elegimos el volumen más cercano
+    idx = min(range(len(data_sorted)), key=lambda i: abs(data_sorted[i][1] - Vtarget))
+    d_closest = data_sorted[idx][0]
+    return d_closest, Vtot, Vtarget
+
 # ====== Estado en memoria simple (para demo) ======
 def build_organs_autofill(d2map):
     rows=[]
@@ -351,114 +467,224 @@ def build_organs_autofill(d2map):
 # ====== Rutas ======
 @app.route("/", methods=["GET"])
 def home():
-    return render_template_string(PAGE, css=CSS, fx_rt=25, n_hdr=3, step1=False)
+    return render_template_string(PAGE, css=CSS, fx_rt=25, n_hdr=3, step1=False,
+                                  # === NUEVO: valores nulos de CTV para no romper contexto
+                                  ctv_volume_total=None, ctv_d90_gy=None, ctv_d90_cgy=None)
 
 @app.route("/cargar_dvh", methods=["POST"])
 def cargar_dvh():
-    fx_rt = int(fnum(request.form.get("fx_rt"),25))
-    n_hdr = int(fnum(request.form.get("n_hdr"),3))
+    fx_rt = int(fnum(request.form.get("fx_rt"), 25))
+    n_hdr = int(fnum(request.form.get("n_hdr"), 3))
+
     d2_autofill = {}
     patient_name, patient_id = None, None
+    ctv_d95_gy = None  # ← inicializamos fuera de cualquier if/for
+    tables = {}
+
     file = request.files.get("dvhfile")
     if file and file.filename:
         txt = file.read().decode("latin1", errors="ignore")
+
         # Extraer paciente/ID
         patient_name, patient_id = parse_patient_meta(txt)
 
+        # Parse DVH de Eclipse
         tables = parse_eclipse_dvh_text(txt)
-        # mapear a nuestros 4 órganos
+
+        # Índice para matching de nombres
         idx = {name.lower(): name for name in tables.keys()}
+
         def find_match(target):
             for low, orig in idx.items():
-                if any(p.search(low) for p in ALIASES[target]): return orig
+                if any(p.search(low) for p in ALIASES[target]):
+                    return orig
             return None
-        for organ in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
+
+        # ---- OARs (D@2cc)
+        for organ in ("VEJIGA", "RECTO", "SIGMOIDE", "INTESTINO"):
             nm = find_match(organ)
-            d2 = dose_at_volume_cc(tables[nm],2.0) if nm else None
-            d2_autofill[organ] = round(d2,2) if d2 is not None else None
+            d2 = dose_at_volume_cc(tables[nm], 2.0) if nm else None
+            d2_autofill[organ] = round(d2, 2) if d2 is not None else None
 
-    # armar resultados de paso 1 (EQD2 EBRT y Dmax/sesión)
-    results=[]
-    Row=lambda **k:type("Row",(),k)
-    for organ,label in [("VEJIGA","Vejiga"),("RECTO","Recto"),("SIGMOIDE","Sigmoide"),("INTESTINO","Intestino")]:
+        # ---- CTV (D95 = dosis al 95% del volumen total)
+        nm_ctv = find_match("CTV")
+        if nm_ctv:
+            d95, Vtot, Vtarget = dose_at_percent_volume(tables[nm_ctv], 95.0)
+            if d95 is not None:
+                ctv_d95_gy = round(d95, 2)
+
+    # ------------------ Armar resultados Tabla 1 ------------------
+    results = []
+    Row = lambda **k: type("Row", (), k)
+
+    for organ, label in [
+        ("VEJIGA", "Vejiga"),
+        ("RECTO", "Recto"),
+        ("SIGMOIDE", "Sigmoide"),
+        ("INTESTINO", "Intestino"),
+    ]:
         D_ext = d2_autofill.get(organ)
-        ab=3.0; limit=LIMITS_EQD2[organ]
-        d_rt=(D_ext/fx_rt) if (D_ext is not None and fx_rt>0) else 0.0
+        ab = 3.0
+        limit = LIMITS_EQD2[organ]
+        d_rt = (D_ext / fx_rt) if (D_ext is not None and fx_rt > 0) else 0.0
         eqd2_ext = eqd2_from_total_with_fraction(D_ext, d_rt, ab) if D_ext is not None else 0.0
-        hdr_prev=0.0; used=eqd2_ext+hdr_prev
-        rem=max(0.0,limit-used); dmax=solve_hdr_dose_per_session(rem,n_hdr,ab)
-        flag="ok" if rem>0 else "warn"
-        results.append(Row(roi=label, D_ext=(f"{D_ext:.2f}" if D_ext is not None else None),
-                           fx_rt=fx_rt,d_rt=d_rt,ab=ab,eqd2_ext=eqd2_ext,hdr_prev=hdr_prev,
-                           used=used,limit=limit,rem=rem,N=n_hdr,dmax_session=dmax,flag=flag))
+        hdr_prev = 0.0
+        used = eqd2_ext + hdr_prev
+        rem = max(0.0, limit - used)
+        dmax = solve_hdr_dose_per_session(rem, n_hdr, ab)
+        flag = "ok" if rem > 0 else "warn"
 
-    return render_template_string(PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr,
-                                  step1=True, results=results,
-                                  patient_name=patient_name, patient_id=patient_id)
+        results.append(
+            Row(
+                roi=label,
+                D_ext=(f"{D_ext:.2f}" if D_ext is not None else None),
+                fx_rt=fx_rt,
+                d_rt=d_rt,
+                ab=ab,
+                eqd2_ext=eqd2_ext,
+                hdr_prev=hdr_prev,
+                used=used,
+                limit=limit,
+                rem=rem,
+                N=n_hdr,
+                dmax_session=dmax,
+                flag=flag,
+                is_ctv_d95=False,
+            )
+        )
+
+    # ---- Fila extra: CTV (D95) en Tabla 1 (muestra D95 y su EQD2 EBRT; el resto va con “—”)
+    if ctv_d95_gy is not None:
+        d_per_fx_ctv = (ctv_d95_gy / fx_rt) if fx_rt > 0 else 0.0
+        eqd2_ctv_ext = eqd2_from_total_with_fraction(ctv_d95_gy, d_per_fx_ctv, 10.0)
+
+        results.append(
+            Row(
+                roi="CTV (D95)",
+                D_ext=f"{ctv_d95_gy:.2f}",   # mostramos el D95
+                fx_rt=fx_rt,
+                d_rt=d_per_fx_ctv,
+                ab=10.0,
+                eqd2_ext=eqd2_ctv_ext,       # EQD2 RT ext del CTV (α/β=10)
+                hdr_prev=0.0,
+                used=0.0,
+                limit=None,                  # guion en plantilla
+                rem=None,
+                N=n_hdr,
+                dmax_session=None,           # guion en plantilla
+                flag=None,                   # guion en plantilla
+                is_ctv_d95=True,
+            )
+        )
+
+    # ------------------ Render ------------------
+    return render_template_string(
+        PAGE,
+        css=CSS,
+        fx_rt=fx_rt,
+        n_hdr=n_hdr,
+        step1=True,
+        results=results,
+        patient_name=patient_name,
+        patient_id=patient_id,
+        # placeholders para paneles CTV (no usamos aquí)
+        ctv_volume_total=None,
+        ctv_d90_gy=None,
+        ctv_d90_cgy=None,
+    )
+
+
+
 
 @app.route("/calcular_hdr", methods=["POST"])
 def calcular_hdr():
-    fx_rt = int(fnum(request.form.get("fx_rt"),25))
-    n_hdr = int(fnum(request.form.get("n_hdr"),3))
+    fx_rt = int(fnum(request.form.get("fx_rt"), 25))
+    n_hdr = int(fnum(request.form.get("n_hdr"), 3))
 
-    # recuperar EBRT del paso 1
-    ebrt=[]
+    # ---------- 1) Recuperar EBRT del Paso 1 (incluye D2cc y límite) ----------
+    ebrt = []
     for i in range(4):
-        roi=request.form.get(f"EBRT_{i}_roi")
-        if not roi: continue
-        eqd2=fnum(request.form.get(f"EBRT_{i}_eqd2"))
-        ebrt.append((roi,eqd2))
-    limits_map={ "Vejiga":LIMITS_EQD2["VEJIGA"], "Recto":LIMITS_EQD2["RECTO"],
-                 "Sigmoide":LIMITS_EQD2["SIGMOIDE"], "Intestino":LIMITS_EQD2["INTESTINO"] }
+        roi = request.form.get(f"EBRT_{i}_roi")
+        if not roi:
+            continue
+        ebrt.append({
+            "roi":   roi,
+            "eqd2":  fnum(request.form.get(f"EBRT_{i}_eqd2")),
+            "limit": fnum(request.form.get(f"EBRT_{i}_limit")) if request.form.get(f"EBRT_{i}_limit") else None,
+            "dext":  request.form.get(f"EBRT_{i}_dext") or None,  # D2cc RT ext (Gy) como string
+        })
 
-    # paciente/ID (pasados desde paso 1)
+    # CTV (D95) de EBRT si lo mandamos por hidden
+    ctv_d95_hidden  = request.form.get("EBRT_CTV_D95")
+    ctv_eqd2_hidden = request.form.get("EBRT_CTV_EQD2")
+
+
+    # Mapa de límites (OARs)
+    limits_map = {
+        "Vejiga":    LIMITS_EQD2["VEJIGA"],
+        "Recto":     LIMITS_EQD2["RECTO"],
+        "Sigmoide":  LIMITS_EQD2["SIGMOIDE"],
+        "Intestino": LIMITS_EQD2["INTESTINO"],
+    }
+
+    # Paciente/ID (pasados desde Paso 1)
     patient_name = request.form.get("patient_name") or None
     patient_id   = request.form.get("patient_id") or None
 
-    # === NUEVO: leer DVH HDR de Oncentra ===
+    # ---------- 2) Leer DVH HDR de Oncentra ----------
     hdrfile = request.files.get("hdrfile")
     hdr_d2 = {}  # D@2cc por órgano (Gy)
+
+    # Resultados CTV (D90) para HDR (opcional)
+    ctv_volume_total = None
+    ctv_d90_gy = None
+    ctv_d90_cgy = None
+
     if hdrfile and hdrfile.filename:
         txt = hdrfile.read().decode("latin1", errors="ignore")
         tables = parse_oncentra_dvh_text(txt)
 
-        # mapear nombres -> nuestras 4 keys
         idx = {name.lower(): name for name in tables.keys()}
+
         def find_match(target):
             for low, orig in idx.items():
-                if any(p.search(low) for p in ALIASES[target]): return orig
+                if any(p.search(low) for p in ALIASES[target]):
+                    return orig
             return None
 
-        for key in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
+        # OARs HDR: D@2cc
+        for key in ("VEJIGA", "RECTO", "SIGMOIDE", "INTESTINO"):
             nm = find_match(key)
             d2 = dose_at_volume_cc(tables[nm], 2.0) if nm else None
             if d2 is not None:
                 hdr_d2[key] = round(d2, 2)
 
-    # map EN/ES para mostrar como en paso1
-    es_name={"VEJIGA":"Vejiga","RECTO":"Recto","SIGMOIDE":"Sigmoide","INTESTINO":"Intestino"}
+        # CTV HDR: D90
+        nm_ctv = find_match("CTV")
+        if nm_ctv:
+            d90, Vtot, Vtarget = dose_at_percent_volume(tables[nm_ctv], 90.0)
+            if d90 is not None:
+                ctv_volume_total = float(Vtot) if Vtot is not None else None
+                ctv_d90_gy = float(d90)
+                ctv_d90_cgy = float(d90) * 100.0
 
-    # construir plan con N fracciones: repetimos D@2cc y calculamos EQD2 por fracción
-    plan=[]
-    Row=lambda **k:type("Row",(),k)
-    for key in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
+    # ---------- 3) Construir Plan HDR (tabla de abajo) ----------
+    es_name = {"VEJIGA": "Vejiga", "RECTO": "Recto", "SIGMOIDE": "Sigmoide", "INTESTINO": "Intestino"}
+
+    plan = []
+    Row = lambda **k: type("Row", (), k)
+
+    for key in ("VEJIGA", "RECTO", "SIGMOIDE", "INTESTINO"):
         display = es_name[key]
         dose = hdr_d2.get(key, 0.0)
-
-        # columnas por fracción
-        doses = [dose]*n_hdr
+        doses = [dose] * n_hdr
         eqd2s = [eqd2_from_single_fraction(d, 3.0) for d in doses]
-
-        # totales
         total_dose = sum(doses)
         eqd2_hdr_total = sum(eqd2s)
-
-        # EBRT de paso 1 (eqd2 acumulado previo)
-        eqd2_ebrt = next((v for (roi,v) in ebrt if roi==display), 0.0)
-
+        # Buscar el EQD2 EBRT para ese ROI entre lo que vino del Paso 1
+        eqd2_ebrt = next((item["eqd2"] for item in ebrt if item["roi"] == display), 0.0)
         eqd2_total = eqd2_ebrt + eqd2_hdr_total
         limit = limits_map[display]
-
         plan.append(Row(
             roi=display,
             doses=doses,
@@ -470,19 +696,117 @@ def calcular_hdr():
             limit=limit
         ))
 
-    # Re-render de resultados paso 1 (para que queden arriba)
-    results=[]
-    for (roi,eqd2) in ebrt:
-        limit = limits_map[roi]; rem=max(0.0,limit-eqd2); dmax=solve_hdr_dose_per_session(rem,n_hdr,3.0)
-        results.append(type("Row",(),{"roi":roi,"D_ext":"-","fx_rt":fx_rt,"d_rt":0.0,"ab":3.0,
-                                      "eqd2_ext":eqd2,"hdr_prev":0.0,"used":eqd2,"limit":limit,
-                                      "rem":rem,"N":n_hdr,"dmax_session":dmax,
-                                      "flag":"ok" if rem>0 else "warn"}))
+        # (Opcional) agregar CTV (D90) como fila en el plan HDR si lo querés mostrar)
+    # ÚNICA fila CTV (D90): sumar EQD2 EBRT (D95) + EQD2 HDR (D90)
+    if ctv_d90_gy is not None:
+        doses_ctv = [ctv_d90_gy] * n_hdr
+        eqd2s_ctv = [eqd2_from_single_fraction(d, 10.0) for d in doses_ctv]
+        eqd2_hdr_ctv_total = sum(eqd2s_ctv)
+
+        # viene oculto desde el Paso 1; si no vino, tomamos 0.0
+        eqd2_ebrt_ctv = float(ctv_eqd2_hidden) if ctv_eqd2_hidden else 0.0
+
+        plan.append(Row(
+            roi="CTV (D90)",
+            doses=doses_ctv,
+            eqd2s=eqd2s_ctv,
+            total_dose=sum(doses_ctv),
+            eqd2_hdr_total=eqd2_hdr_ctv_total,
+            eqd2_ebrt=eqd2_ebrt_ctv,
+            eqd2_total=eqd2_ebrt_ctv + eqd2_hdr_ctv_total,
+            limit=None,
+            is_ctv=True
+        ))
+
+    # ---------- 4) Reconstruir Tabla 1 COMPLETA (arriba) ----------
+    results = []
+    for item in ebrt:
+        roi   = item["roi"]
+        eqd2  = item["eqd2"]
+        limit = item["limit"]
+        dext  = item["dext"]  # texto "xx.xx" o None
+
+        if limit is not None:
+            rem  = max(0.0, limit - eqd2)
+            dmax = solve_hdr_dose_per_session(rem, n_hdr, 3.0)
+            flag = "ok" if rem > 0 else "warn"
+        else:
+            rem = dmax = flag = None
+
+        results.append(type("Row", (), {
+            "roi": roi,
+            "D_ext": dext,          # ← repinta D2cc
+            "fx_rt": fx_rt,
+            "d_rt": 0.0,
+            "ab": 3.0,
+            "eqd2_ext": eqd2,
+            "hdr_prev": 0.0,
+            "used": eqd2,
+            "limit": limit,
+            "rem": rem,
+            "N": n_hdr,
+            "dmax_session": dmax,
+            "flag": flag,
+            "is_ctv_d95": False,
+        }))
+
+    # CTV (D95) UNA sola vez si vino
+    if ctv_d95_hidden and not any(getattr(r, "is_ctv_d95", False) for r in results):
+        results.append(type("Row", (), {
+            "roi": "CTV (D95)",
+            "D_ext": ctv_d95_hidden,
+            "fx_rt": fx_rt,
+            "d_rt": 0.0,
+            "ab": 10.0,
+            "eqd2_ext": (float(ctv_eqd2_hidden) if ctv_eqd2_hidden else None),
+            "hdr_prev": 0.0,
+            "used": 0.0,
+            "limit": None,
+            "rem": None,
+            "N": n_hdr,
+            "dmax_session": None,
+            "flag": None,
+            "is_ctv_d95": True,
+        }))
+
+    # ---------- 5) Render ----------
+    return render_template_string(
+        PAGE,
+        css=CSS,
+        fx_rt=fx_rt,
+        n_hdr=n_hdr,
+        step1=True,
+        results=results,
+        plan_real=plan,
+        patient_name=patient_name,
+        patient_id=patient_id,
+        ctv_volume_total=ctv_volume_total,
+        ctv_d90_gy=ctv_d90_gy,
+        ctv_d90_cgy=ctv_d90_cgy
+    )
+
+
+    # Re-render de resultados paso 1 (arriba)
+    results = []
+    for (roi, eqd2) in ebrt:
+        limit = limits_map[roi]
+        rem = max(0.0, limit - eqd2)
+        dmax = solve_hdr_dose_per_session(rem, n_hdr, 3.0)
+        results.append(type("Row", (), {
+            "roi": roi, "D_ext": "-", "fx_rt": fx_rt, "d_rt": 0.0, "ab": 3.0,
+            "eqd2_ext": eqd2, "hdr_prev": 0.0, "used": eqd2, "limit": limit,
+            "rem": rem, "N": n_hdr, "dmax_session": dmax,
+            "flag": "ok" if rem > 0 else "warn"
+        }))
 
     # Render
-    return render_template_string(PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr,
-                                  step1=True, results=results, plan_real=plan,
-                                  patient_name=patient_name, patient_id=patient_id)
+    return render_template_string(
+        PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr,
+        step1=True, results=results, plan_real=plan,
+        patient_name=patient_name, patient_id=patient_id,
+        ctv_volume_total=ctv_volume_total, ctv_d90_gy=ctv_d90_gy, ctv_d90_cgy=ctv_d90_cgy
+    )
+
 if __name__ == "__main__":
     print(">> Booting Flask on http://127.0.0.1:5000  (use_reloader=False)")
     try:
