@@ -310,6 +310,35 @@ def solve_hdr_dose_per_session(eqd2_remaining, N, ab):
     if disc < 0: return 0.0
     d = (-1.0 + math.sqrt(disc)) / (2.0*A)
     return max(0.0, d)
+# ====== Normalización de etiquetas ES→EN (para DVH de Eclipse) ======
+import re as _re
+
+_norm_rules = [
+    # Bloques / metadatos
+    (r'^\s*Estructura\s*:',                 'Structure:',  _re.I),
+    (r'^\s*Estado\s+de\s+la\s+aprobación\s*:', 'Approval Status:', _re.I),
+    (r'^\s*Nombre\s+de\s+paciente\s*:',     'Patient Name         :', _re.I),
+    (r'^\s*ID\s+paciente\s*:',              'Patient ID           :', _re.I),
+    (r'^\s*Descripción\s*:',                'Description          :', _re.I),
+
+    # Cabecera de tabla DVH
+    (r'^\s*Dosis\s*\[\s*cGy\s*\]',          'Dose [cGy]', _re.I),
+    (r'Dosis\s+relativa\s*\[\s*%\s*\]',      'Relative dose [%]', _re.I),
+    (r'Volumen\s+de\s+estructura\s*\[\s*cm³\s*\]', 'Structure Volume [cm³]', _re.I),
+]
+
+def normalize_labels(text: str) -> str:
+    """Convierte etiquetas en español a las que tu parser ya entiende (inglés)."""
+    lines = text.splitlines()
+    out = []
+    for ln in lines:
+        s = ln
+        for pat, rep, flags in _norm_rules:
+            s = _re.sub(pat, rep, s, flags=flags)
+        out.append(s)
+    return "\n".join(out)
+
+
 
 # ====== Parsers ======
 def fnum(s, default=0.0):
@@ -365,30 +394,26 @@ def parse_oncentra_dvh_text(txt):
 
 
 def parse_patient_meta(txt):
-    """Extrae nombre e ID de paciente del header del DVH si están presentes.
-       Ejemplo:
-         Patient Name         : RUIZ, ANGELICA (321I) (613602), (10-49217)
-         Patient ID           : 613602
-    """
+    """Extrae nombre e ID si vienen en ES o EN."""
     name, pid = None, None
 
-    # Nombre
-    m = re.search(r'Patient\s*Name\s*:\s*([^\r\n]+)', txt, re.I)
+    # name
+    m = re.search(r'(?:Patient\s*Name|Nombre\s+de\s+paciente)\s*:\s*([^\r\n]+)', txt, re.I)
     if m:
         raw_name = m.group(1).strip()
-        # limpiar paréntesis y comas sobrantes
         clean = re.sub(r'\s*\([^)]*\)', '', raw_name).strip()
         clean = re.sub(r'\s*,\s*$', '', clean)
         name = clean if clean else raw_name
 
-    # ID
-    m = re.search(r'Patient\s*ID\s*:\s*([^\r\n]+)', txt, re.I)
+    # id
+    m = re.search(r'(?:Patient\s*ID|ID\s+paciente)\s*:\s*([^\r\n]+)', txt, re.I)
     if m:
         raw_id = m.group(1).strip()
         mnum = re.search(r'[\w-]+', raw_id)
         pid = mnum.group(0) if mnum else raw_id
 
     return name, pid
+
 
 
 def dose_at_volume_cc(data, target_cc):
@@ -483,7 +508,9 @@ def cargar_dvh():
 
     file = request.files.get("dvhfile")
     if file and file.filename:
-        txt = file.read().decode("latin1", errors="ignore")
+        raw = file.read().decode("latin1", errors="ignore")
+        txt = normalize_labels(raw)
+
 
         # Extraer paciente/ID
         patient_name, patient_id = parse_patient_meta(txt)
