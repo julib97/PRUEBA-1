@@ -25,11 +25,12 @@ ALIASES = {
         r"\bCTVHR\b",
          r"\bCTV[_\s-]*(uterus|utero|útero)\b",   # ← agrega estas variantes
         r"\bvolumen\s*cl[ií]nico"
-    ]]
-
-    
+    ]]   
 }
-
+  # --- Normalizador de nombres ROI: quita prefijo numérico tipo "1_", "2- ", "3 "
+def _normalize_roi_token(s: str) -> str:
+    # Pasamos a minúsculas, quitamos espacios y sacamos números iniciales con guiones/underscores
+    return re.sub(r'^\s*\d+[_\s\-]*', '', s.strip().lower())
 # ====== Helpers de UI ======
 CSS = """
 :root { --bg:#0f172a; --card:#111827; --muted:#94a3b8; --text:#e5e7eb; --acc:#22d3ee; --acc2:#38bdf8; --err:#f87171; --ok:#34d399; }
@@ -170,7 +171,7 @@ PAGE = """
     {% if r.flag == "ok" %}
       <span class="ok">✅ Con margen</span>
     {% else %}
-      <span class="warn">⚠️ Sin margen</span>
+      <span class="warn">� ️ Sin margen</span>
     {% endif %}
   {% endif %}
 </td>
@@ -279,7 +280,7 @@ PAGE = """
     {% if r.eqd2_total <= r.limit %}
       <span class="ok">✅ Con margen</span>
     {% else %}
-      <span class="warn">⚠️ Excede</span>
+      <span class="warn">� ️ Excede</span>
     {% endif %}
   {% endif %}
 </td>
@@ -521,10 +522,11 @@ def cargar_dvh():
         # Índice para matching de nombres
         idx = {name.lower(): name for name in tables.keys()}
 
-        def find_match(target):
+        def find_match(target: str):
             for low, orig in idx.items():
-                if any(p.search(low) for p in ALIASES[target]):
-                    return orig
+                low_norm = _normalize_roi_token(low)  # normalizamos antes de probar
+                if any(p.search(low_norm) for p in ALIASES[target]):
+                   return orig
             return None
 
         # ---- OARs (D@2cc)
@@ -674,10 +676,11 @@ def calcular_hdr():
         idx = {name.lower(): name for name in tables.keys()}
 
         def find_match(target):
-            for low, orig in idx.items():
-                if any(p.search(low) for p in ALIASES[target]):
-                    return orig
-            return None
+          for low, orig in idx.items():
+            low_norm = _normalize_roi_token(low)  # ← normalizamos antes de probar
+            if any(p.search(low_norm) for p in ALIASES[target]):
+              return orig
+          return None
 
         # OARs HDR: D@2cc
         for key in ("VEJIGA", "RECTO", "SIGMOIDE", "INTESTINO"):
