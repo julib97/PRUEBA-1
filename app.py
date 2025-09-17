@@ -14,18 +14,41 @@ LIMITS_EQD2 = {"VEJIGA":85.0,"RECTO":75.0,"SIGMOIDE":75.0,"INTESTINO":75.0}
 ALIASES = {
     "VEJIGA":[re.compile(p,re.I) for p in [r"\bbladder\b", r"\bvejig"]],
     "RECTO":[re.compile(p,re.I) for p in [r"\brectum\b", r"\brecto\b"]],
-    "SIGMOIDE":[re.compile(p,re.I) for p in [r"\bsigmoid\b", r"\bbowel[_\s-]?large\b", r"\bsigmoide\b"]],
-    "INTESTINO":[re.compile(p,re.I) for p in [r"\bbowel[_\s-]?small\b", r"\bsmall\s*bowel\b", r"\bintestin[oa]"]],
-    # === NUEVO: alias para CTV ===
-    
+
+    # === INTESTINO GRUESO (SIGMOIDE / COLON) ===
+    "SIGMOIDE":[re.compile(p,re.I) for p in [
+        r"\bsigmoid\b",
+        r"\bsigmoide\b",
+        r"\bsigma\b",
+        r"\bcolon\b",                       # colon “a secas”
+        r"\bcolon[_\s-]*sigmoid[eo]\b",     # colon-sigmoide / colon sigmoideo
+        r"\brecto[_\s-]*sigmoid[eo]\b",     # recto-sigmoide
+        r"\brectosigmoid[eo]\b",            # rectosigmoideo
+        r"\bintestino\s+grueso\b",
+        r"\bbowel[_\s-]?large\b",           # large bowel
+    ]],
+
+
+    # === INTESTINO DELGADO (SMALL BOWEL) ===
+    "INTESTINO":[re.compile(p,re.I) for p in [
+        r"\bbowel[_\s-]?small\b",
+        r"\bsmall\s*bowel\b",
+        r"\bintestino\s+delgado\b",
+        r"\bintestino(?!\s+grueso)\b",      # “intestino” solo = delgado
+        r"\bduoden(?:o|um)\b",
+        r"\byeyun(?:o|um)\b",
+        r"\bíle(?:on|um)\b",
+    ]],
+
+    # === CTV (igual que ya tenías) ===
     "CTV":[re.compile(p,re.I) for p in [
         r"\bCTV\b",
         r"\bCTV[_\s-]*HR\b",
         r"\bHR[_\s-]*CTV\b",
         r"\bCTVHR\b",
-         r"\bCTV[_\s-]*(uterus|utero|útero)\b",   # ← agrega estas variantes
+        r"\bCTV[_\s-]*(uterus|utero|útero)\b",
         r"\bvolumen\s*cl[ií]nico"
-    ]]   
+    ]]
 }
   # --- Normalizador de nombres ROI: quita prefijo numérico tipo "1_", "2- ", "3 "
 def _normalize_roi_token(s: str) -> str:
