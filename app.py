@@ -97,6 +97,18 @@ textarea{min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 .table th[colspan] {
   text-align: center;
 }
+/* Resaltar ROI + EQD2 TOTAL */
+
+.table-plan thead tr:first-child th:nth-child(1),
+.table-plan thead tr:first-child th:nth-child(2),
+.table-plan tbody td:nth-child(1),
+.table-plan tbody td:nth-child(2) {
+  font-weight: 700;
+  font-size: 16px;
+  color: #22d3ee;  /* turquesa */
+}
+
+
 """
 
 
@@ -258,60 +270,61 @@ PAGE = """
         <b>ID:</b> {{ patient_id or "—" }}
       </p>
     {% endif %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th rowspan="2">ROI</th>
-          <th colspan="{{n_hdr*2}}">Fracciones</th>
-          <th rowspan="2">Total (Gy)</th>
-          <th rowspan="2">EQD2 HDR (Gy)</th>
-          <th rowspan="2">EQD2 EBRT (Gy)</th>
-          <th rowspan="2">EQD2 TOTAL (Gy)</th>
-          <th rowspan="2">Límite (Gy)</th>
-          <th rowspan="2">Estado</th>
-        </tr>
-        <tr>
-          {% for i in range(1, n_hdr+1) %}
-            <th>Dosis {{i}}</th>
-            <th>EQD2 {{i}}</th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in plan_real %}
-        <tr>
-          <td>{{r.roi}}</td>
-          {% for i in range(n_hdr) %}
-            <td>{{"%.2f"|format(r.doses[i])}}</td>
-            <td>{{"%.2f"|format(r.eqd2s[i])}}</td>
-          {% endfor %}
-          <td>{{"%.2f"|format(r.total_dose)}}</td>
-          <td>{{"%.2f"|format(r.eqd2_hdr_total)}}</td>
-          <td>{{"%.2f"|format(r.eqd2_ebrt)}}</td>
-          <td>{{"%.2f"|format(r.eqd2_total)}}</td>
-          <td>
-  {% if r.limit is not none %}
-    {{"%.2f"|format(r.limit)}}
-  {% else %}
-    —
-  {% endif %}
-</td>
-<td>
-  {% if r.is_ctv %}
-    —
-  {% else %}
-    {% if r.eqd2_total <= r.limit %}
-      <span class="ok">✅ Con margen</span>
-    {% else %}
-      <span class="warn">� ️ Excede</span>
-    {% endif %}
-  {% endif %}
-</td>
+   <table class="table table-plan">
+  <thead>
+    <tr>
+      <th rowspan="2">ROI</th>
+      <th rowspan="2">EQD2 TOTAL (Gy)</th>   <!-- ← LA MOVEMOS ACÁ -->
+      <th colspan="{{n_hdr*2}}">Fracciones</th>
+      <th rowspan="2">Total (Gy)</th>
+      <th rowspan="2">EQD2 HDR (Gy)</th>
+      <th rowspan="2">EQD2 EBRT (Gy)</th>
+      <th rowspan="2">Límite (Gy)</th>
+      <th rowspan="2">Estado</th>
+    </tr>
+    <tr>
+      {% for i in range(1, n_hdr+1) %}
+        <th>Dosis {{i}}</th>
+        <th>EQD2 {{i}}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in plan_real %}
+    <tr>
+      <td>{{r.roi}}</td>
+      <td>{{"%.2f"|format(r.eqd2_total)}}</td>   <!-- ← NUEVA 2DA COLUMNA -->
+      {% for i in range(n_hdr) %}
+        <td>{{"%.2f"|format(r.doses[i])}}</td>
+        <td>{{"%.2f"|format(r.eqd2s[i])}}</td>
+      {% endfor %}
+      <td>{{"%.2f"|format(r.total_dose)}}</td>
+      <td>{{"%.2f"|format(r.eqd2_hdr_total)}}</td>
+      <td>{{"%.2f"|format(r.eqd2_ebrt)}}</td>
+      <td>
+        {% if r.limit is not none %}
+          {{"%.2f"|format(r.limit)}}
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td>
+        {% if r.is_ctv %}
+          —
+        {% else %}
+          {% if r.eqd2_total <= r.limit %}
+            <span class="ok">✅ Con margen</span>
+          {% else %}
+            <span class="warn">� ️ Excede</span>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+ 
     <p class="note">EQD2 por fracción con α/β=3. “Total (Gy)” suma las dosis por fracción; “EQD2 HDR” suma los EQD2 por fracción; “EQD2 TOTAL” = EQD2 EBRT + EQD2 HDR.</p>
   </div>
 {% endif %}
@@ -670,7 +683,6 @@ def calcular_hdr():
     ctv_d95_hidden  = request.form.get("EBRT_CTV_D95")
     ctv_eqd2_hidden = request.form.get("EBRT_CTV_EQD2")
 
-
     # Mapa de límites (OARs)
     limits_map = {
         "Vejiga":    LIMITS_EQD2["VEJIGA"],
@@ -699,11 +711,11 @@ def calcular_hdr():
         idx = {name.lower(): name for name in tables.keys()}
 
         def find_match(target):
-          for low, orig in idx.items():
-            low_norm = _normalize_roi_token(low)  # ← normalizamos antes de probar
-            if any(p.search(low_norm) for p in ALIASES[target]):
-              return orig
-          return None
+            for low, orig in idx.items():
+                low_norm = _normalize_roi_token(low)  # ← normalizamos antes de probar
+                if any(p.search(low_norm) for p in ALIASES[target]):
+                    return orig
+            return None
 
         # OARs HDR: D@2cc
         for key in ("VEJIGA", "RECTO", "SIGMOIDE", "INTESTINO"):
@@ -722,41 +734,14 @@ def calcular_hdr():
                 ctv_d90_cgy = float(d90) * 100.0
 
     # ---------- 3) Construir Plan HDR (tabla de abajo) ----------
-    es_name = {"VEJIGA": "Vejiga", "RECTO": "Recto", "SIGMOIDE": "Sigmoide", "INTESTINO": "Intestino"}
-
     plan = []
     Row = lambda **k: type("Row", (), k)
 
-    for key in ("VEJIGA", "RECTO", "SIGMOIDE", "INTESTINO"):
-        display = es_name[key]
-        dose = hdr_d2.get(key, 0.0)
-        doses = [dose] * n_hdr
-        eqd2s = [eqd2_from_single_fraction(d, 3.0) for d in doses]
-        total_dose = sum(doses)
-        eqd2_hdr_total = sum(eqd2s)
-        # Buscar el EQD2 EBRT para ese ROI entre lo que vino del Paso 1
-        eqd2_ebrt = next((item["eqd2"] for item in ebrt if item["roi"] == display), 0.0)
-        eqd2_total = eqd2_ebrt + eqd2_hdr_total
-        limit = limits_map[display]
-        plan.append(Row(
-            roi=display,
-            doses=doses,
-            eqd2s=eqd2s,
-            total_dose=total_dose,
-            eqd2_hdr_total=eqd2_hdr_total,
-            eqd2_ebrt=eqd2_ebrt,
-            eqd2_total=eqd2_total,
-            limit=limit
-        ))
-
-        # (Opcional) agregar CTV (D90) como fila en el plan HDR si lo querés mostrar)
-    # ÚNICA fila CTV (D90): sumar EQD2 EBRT (D95) + EQD2 HDR (D90)
+    # 3.a) Primero CTV si existe (D90 HDR + D95 EBRT)
     if ctv_d90_gy is not None:
         doses_ctv = [ctv_d90_gy] * n_hdr
         eqd2s_ctv = [eqd2_from_single_fraction(d, 10.0) for d in doses_ctv]
         eqd2_hdr_ctv_total = sum(eqd2s_ctv)
-
-        # viene oculto desde el Paso 1; si no vino, tomamos 0.0
         eqd2_ebrt_ctv = float(ctv_eqd2_hidden) if ctv_eqd2_hidden else 0.0
 
         plan.append(Row(
@@ -769,6 +754,30 @@ def calcular_hdr():
             eqd2_total=eqd2_ebrt_ctv + eqd2_hdr_ctv_total,
             limit=None,
             is_ctv=True
+        ))
+
+    # 3.b) Luego resto de órganos en el orden pedido
+    order = [("RECTO","Recto"), ("VEJIGA","Vejiga"), ("SIGMOIDE","Sigmoide"), ("INTESTINO","Intestino")]
+
+    for key, display in order:
+        dose = hdr_d2.get(key, 0.0)
+        doses = [dose] * n_hdr
+        eqd2s = [eqd2_from_single_fraction(d, 3.0) for d in doses]
+        total_dose = sum(doses)
+        eqd2_hdr_total = sum(eqd2s)
+        eqd2_ebrt = next((item["eqd2"] for item in ebrt if item["roi"] == display), 0.0)
+        eqd2_total = eqd2_ebrt + eqd2_hdr_total
+        limit = limits_map[display]
+
+        plan.append(Row(
+            roi=display,
+            doses=doses,
+            eqd2s=eqd2s,
+            total_dose=total_dose,
+            eqd2_hdr_total=eqd2_hdr_total,
+            eqd2_ebrt=eqd2_ebrt,
+            eqd2_total=eqd2_total,
+            limit=limit
         ))
 
     # ---------- 4) Reconstruir Tabla 1 COMPLETA (arriba) ----------
@@ -821,6 +830,10 @@ def calcular_hdr():
             "flag": None,
             "is_ctv_d95": True,
         }))
+
+    # (Opcional) Ordenar la tabla de arriba con el mismo criterio visual
+    order_display = ["CTV (D95)", "Recto", "Vejiga", "Sigmoide", "Intestino"]
+    results.sort(key=lambda r: order_display.index(r.roi) if getattr(r, "roi", None) in order_display else 999)
 
     # ---------- 5) Render ----------
     return render_template_string(
