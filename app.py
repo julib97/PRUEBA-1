@@ -84,6 +84,16 @@ textarea{min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 .eqd2-warn { color: #f87171; font-weight: 600; }
 .patient-info { font-size: 16px; color: #fb923c; font-weight: 600; margin: 6px 0 12px 0; }
 .table th[colspan] { text-align: center; }
+/* === Bold para Resumen dosimétrico === */
+.table-summary thead th:first-child,
+.table-summary thead th:last-child,
+.table-summary tbody td:first-child,
+.table-summary tbody td:last-child { font-weight: 700; }
+
+/* Mantener el bold aunque el valor tenga color */
+.table-summary tbody td:last-child .eqd2-ok,
+.table-summary tbody td:last-child .eqd2-warn { font-weight: 700; }
+
 """
 
 PAGE = """
@@ -240,7 +250,7 @@ PAGE = """
 
   <div class="section">
     <h3>Resumen dosimétrico (datos clave)</h3>
-    <table class="table">
+    <table class="table table-summary">
       <thead><tr><th>Órgano</th><th>EQD2 RT Externa (Gy)</th><th>EQD2 HDR (Gy)</th><th>EQD2 TOTAL (Gy)</th></tr></thead>
       <tbody>
         {% for r in plan_summary %}
