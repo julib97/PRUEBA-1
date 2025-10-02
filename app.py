@@ -93,33 +93,51 @@ textarea{min-height:140px; font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 /* Mantener el bold aunque el valor tenga color */
 .table-summary tbody td:last-child .eqd2-ok,
 .table-summary tbody td:last-child .eqd2-warn { font-weight: 700; }
+/* === Aumento global de tipografías (+3pt) === */
+:root { --inc: 3pt; } /* cambiá este valor si querés más/menos tamaño */
+
+/* Base */
+body { font-size: calc(16px + var(--inc)); }
+
+/* Títulos */
+h1 { font-size: calc(24px + var(--inc)); }
+.section h3 { font-size: calc(18px + var(--inc)); }
+
+/* Tablas */
+.table th,
+.table td { font-size: calc(14px + var(--inc)); }
+
+/* Botones y detalles */
+.btn { font-size: calc(14px + var(--inc)); }
+.patient-info { font-size: calc(16px + var(--inc)); }
+.small { font-size: calc(12px + var(--inc)); }
+
 
 """
 
 PAGE = """
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RT Externa → Dmax HDR + Plan Real</title><style>{{css}}</style></head>
+<title> Servidor braquiterapia </title><style>{{css}}</style></head>
 <body><div class="container"><div class="card">
-  <h1><span style="color:#67e8f9">Pipeline</span> <span class="badge">DVH → Resultados → Oncentra</span></h1>
+  <h1><span style="color:#67e8f9"> <span class="badge">Cálculo dosimétrico Braquiterapia </span></h1>
  <div class="lead">
-  <p><strong>Paso 1:</strong> cargá el <b>DVH acumulado de RT externa Eclipse</b>.</p>
-  <p><strong>Paso 2:</strong> cargá el <b>DVH de HDR de Oncentra</b>.</p>
+  <p></strong> Este servidor permite subir el plan de radioterapia externa con el fin de calcular cuáles serán las dosis máximas permitidas por sesión en la braquiterapia. Una vez que se planifica la braquiterapia, también es posible ingresar los datos correspondientes para obtener la suma total de dosis en EQD2</b>.</p>
 </div>
 
   <!-- PASO 1 -->
  <form method="post" action="/cargar_dvh" enctype="multipart/form-data">
   <div class="grid">
-     <label>N sesiones RT externa
+     <label>Número de sesiones RT externa
        <input class="input" type="number" name="fx_rt" min="1" step="1" value="{{fx_rt}}">
      </label>
-     <label>N sesiones HDR
+     <label>Número de sesiones HDR
        <input class="input" type="number" name="n_hdr" min="1" step="1" value="{{n_hdr}}">
      </label>
   </div>
 
   <div class="section">
-    <h3>Límites por órgano (editables)</h3>
-    <p class="small">Estos límites se usan para calcular el <b>D máx/sesión</b> de la Tabla 1. Si los cambiás y tocás <b>Cargar</b>, se recalcula todo.</p>
+    <h3>Límites por órgano </h3>
+    <p class="small"> Los límites por órgano corresponden a las dosis máximas recomendadas en EQD2 para cada estructura de riesgo. Estos valores pueden ser modificados; en ese caso, es necesario volver a cargar los archivos para que los cálculos se actualicen correctamente.</p>
     <table class="table">
       <thead>
         <tr><th>Órgano</th><th>Límite EQD2 (Gy)</th></tr>
@@ -134,7 +152,8 @@ PAGE = """
   </div>
 
   <div class="section">
-    <h3>Paso 1 — Cargar DVH</h3>
+    <h3>Paso 1 — Cargar DVH Eclipse</h3>
+    <p class="small"> Para extraer el DVH desde Eclipse debe abrirse el histograma de dosis, seleccionar los órganos de riesgo junto con el CTV, configurar la visualización en <i>volumen absoluto</i> y <i>dosis absoluta</i>, y luego utilizar la opción de menú desplegable (<i>clic derecho → Exportar histograma</i>) para generar el archivo.</p>
     <div class="row" style="margin-top:8px">
       <label>Archivo DVH (texto .txt de Eclipse)
         <input class="input" type="file" name="dvhfile" accept=".txt,.dvh,.csv,.log,.dat,.*">
@@ -148,27 +167,53 @@ PAGE = """
 
   {% if step1 %}
   <div class="section">
-    <h3>Resultados (RT Externa → Dmax/sesión HDR)</h3>
+    <h3>Dosis de radioterapia externa y cálculo de la dosis permitida en HDR</h3>
     {% if patient_name or patient_id %}
       <p class="patient-info"><b>Paciente:</b> {{ patient_name or "—" }} &nbsp;&nbsp; <b>ID:</b> {{ patient_id or "—" }}</p>
     {% endif %}
 
     <table class="table">
-      <thead>
-        <tr><th>Órgano</th><th>D2cc RT Externa (Gy)</th><th>EQD2 RT Externa (Gy)</th><th>D máx/sesión (Gy)</th></tr>
-      </thead>
-      <tbody>
-      {% for r in results %}
-        <tr>
-          <td>{{ r.roi }}</td>
-          <td>{{ r.D_ext if r.D_ext is not none else "-" }}{% if r.is_ctv_d95 %}<span class="small">(D95)</span>{% endif %}</td>
-          <td>{% if r.eqd2_ext is not none %}{{ "%.2f"|format(r.eqd2_ext) }}{% else %}—{% endif %}</td>
-          <td>{% if r.is_ctv_d95 %}—{% else %}{{ "%.2f"|format(r.dmax_session) }}{% endif %}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    <p class="note">EQD2 EBRT = D_total · (1 + d_rt/αβ) / (1 + 2/αβ). Dmax/sesión resuelve la cuadrática con el remanente.</p>
+  <thead>
+    <tr>
+      <th>Órgano</th>
+      <th>RT Externa (Gy)</th>
+      <th>EQD2 RT Externa (Gy)</th>
+      <th>Dosis max por sesión (Gy)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results %}
+      <tr>
+        <td>
+          {{ r.roi }}
+          {% if r.is_ctv_d95 %}
+            <span class="small">(D95)</span>
+          {% else %}
+            <span class="small">(D2cc)</span>
+          {% endif %}
+        </td>
+        <td>
+          {{ r.D_ext if r.D_ext is not none else "-" }}
+        </td>
+        <td>
+          {% if r.eqd2_ext is not none %}
+            {{ "%.2f"|format(r.eqd2_ext) }}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td>
+          {% if r.is_ctv_d95 %}
+            —
+          {% else %}
+            {{ "%.2f"|format(r.dmax_session) }}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+    <p class="note">Nota: EQD2 EBRT = D_total · (1 + d_rt/αβ) / (1 + 2/αβ). Dmax/sesión resuelve la cuadrática con el remanente.</p>
   </div>
 
   <form method="post" action="/calcular_hdr" enctype="multipart/form-data">
@@ -195,8 +240,8 @@ PAGE = """
     {% endif %}
 
     <div class="section">
-      <h3>Paso 2 — Cargar DVH de HDR (Oncentra)</h3>
-      <p class="small">Subí el DVH de Oncentra. Tomamos <b>D2cc</b> para VEJIGA, RECTO, SIGMOIDE e INTESTINO.</p>
+      <h3>Paso 2 — Cargar DVH Oncentra</h3>
+      <p class="small">Para extraer el DVH desde Oncentra, abrir el histograma de dosis, verificar que la configuración esté en dosis absoluta y volumen absoluto, y luego usar el menú contextual (clic derecho → Export DVH) para generar el archivo.</p>
       <label>Archivo DVH HDR (texto .txt de Oncentra)
         <input class="input" type="file" name="hdrfile" accept=".txt,.dvh,.csv,.log,.dat,.*">
       </label>
@@ -209,7 +254,7 @@ PAGE = """
 
   {% if plan_real %}
   <div class="section">
-    <h3>Plan Real Completo RT Externa + HDR</h3>
+    <h3>Dosis tratamiento HDR</h3>
     {% if patient_name or patient_id %}
       <p class="patient-info"><b>Paciente:</b> {{ patient_name or "—" }} &nbsp;&nbsp; <b>ID:</b> {{ patient_id or "—" }}</p>
     {% endif %}
@@ -245,11 +290,14 @@ PAGE = """
         {% endfor %}
       </tbody>
     </table>
-    <p class="note">EQD2 por fracción con α/β=3 (OAR) o α/β=10 (CTV). “EQD2 TOTAL” = EQD2 EBRT + EQD2 HDR.</p>
+    <p class="note">Nota: EQD2 por fracción con α/β=3 (OAR) o α/β=10 (CTV). “EQD2 TOTAL” = EQD2 EBRT + EQD2 HDR.</p>
   </div>
 
   <div class="section">
-    <h3>Resumen dosimétrico (datos clave)</h3>
+    <h3>Resumen dosimétrico del tratamiento completo (Radioterapia externa + HDR) </h3>
+     {% if patient_name or patient_id %}
+      <p class="patient-info"><b>Paciente:</b> {{ patient_name or "—" }} &nbsp;&nbsp; <b>ID:</b> {{ patient_id or "—" }}</p>
+    {% endif %}
     <table class="table table-summary">
       <thead><tr><th>Órgano</th><th>EQD2 RT Externa (Gy)</th><th>EQD2 HDR (Gy)</th><th>EQD2 TOTAL (Gy)</th></tr></thead>
       <tbody>
@@ -273,7 +321,6 @@ PAGE = """
         {% endfor %}
       </tbody>
     </table>
-    <p class="note">La tabla muestra solo valores clave por órgano.</p>
   </div>
   {% endif %}
 </div></div></body></html>
@@ -533,13 +580,13 @@ def cargar_dvh():
         d_per_fx_ctv = (ctv_d95_gy / fx_rt) if fx_rt > 0 else 0.0
         eqd2_ctv_ext = eqd2_from_total_with_fraction(ctv_d95_gy, d_per_fx_ctv, 10.0)
         results.append(Row(
-            roi="CTV (D95)", D_ext=f"{ctv_d95_gy:.2f}",
+            roi="CTV", D_ext=f"{ctv_d95_gy:.2f}",
             fx_rt=fx_rt, d_rt=d_per_fx_ctv, ab=10.0,
             eqd2_ext=eqd2_ctv_ext, hdr_prev=0.0, used=0.0,
             limit=None, rem=None, N=n_hdr, dmax_session=None, flag=None, is_ctv_d95=True
         ))
 
-    order_display = ["CTV (D95)", "Recto", "Vejiga", "Sigmoide", "Intestino"]
+    order_display = ["CTV", "Recto", "Vejiga", "Sigmoide", "Intestino"]
     results.sort(key=lambda r: order_display.index(r.roi) if getattr(r, "roi", None) in order_display else 999)
 
     return render_template_string(
