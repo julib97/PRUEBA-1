@@ -107,8 +107,32 @@ h1 { font-size: calc(24px + var(--inc)); }
 .btn { font-size: calc(14px + var(--inc)); }
 .patient-info { font-size: calc(16px + var(--inc)); }
 .small { font-size: calc(12px + var(--inc)); }
+/* --- OPCIÓN B: ANCHO BALANCEADO (RECOMENDADO) --- */
+.table-fixed-layout,
+.table-summary {
+    table-layout: fixed;
+    width: 100%;
+}
 
+.table-fixed-layout th:first-child,
+.table-fixed-layout td:first-child,
+.table-summary th:first-child,
+.table-summary td:first-child {
+    width: 34%; /* Más espacio para la columna "Órgano" */
+}
+/* ... (El resto de tu código CSS termina aquí, por ejemplo, con .small { font-size: ... } ) ... */
 
+/* --- AÑADIR AL FINAL DEL BLOQUE CSS --- */
+/* Aumenta el grosor del borde de las celdas de la tabla de resumen */
+.table-summary th,
+.table-summary td {
+    border: 2px solid rgba(255,255,255,.35); /* Borde más grueso y un poco más claro */
+}
+
+/* Aumenta el grosor del borde exterior de la tabla de resumen */
+.table-summary {
+    border: 3px solid rgba(255,255,255,.5); /* Borde exterior más visible */
+}
 """
 
 PAGE = """
@@ -141,7 +165,7 @@ PAGE = """
   <div class="section">
     <h3>Límites por órgano </h3>
     <p class="small"> Los límites por órgano corresponden a las dosis máximas recomendadas en EQD2 para cada estructura de riesgo. Estos valores pueden ser modificados; en ese caso, es necesario volver a cargar los archivos para que los cálculos se actualicen correctamente.</p>
-    <table class="table">
+    <table class="table table-fixed-layout">
       <thead>
         <tr><th>Órgano</th><th>Límite EQD2 (Gy)</th></tr>
       </thead>
@@ -156,7 +180,10 @@ PAGE = """
 
   <div class="section">
     <h3>Paso 1 — Cargar DVH Eclipse</h3>
-    <p class="small"> Para extraer el DVH desde Eclipse debe abrirse el histograma de dosis, seleccionar los órganos de riesgo junto con el CTV, configurar la visualización en <i>volumen absoluto</i> y <i>dosis absoluta</i>, y luego utilizar la opción de menú desplegable (<i>clic derecho → Exportar histograma</i>) para generar el archivo.</p>
+    <p class="small"> Para exportar los datos desde Eclipse, abrir el histograma de dosis en la vista del plan haciendo clic derecho y seleccionando Show → Dose Volume Histogram View. Luego, seleccionar los histogramas correspondientes a Vejiga, Intestino, Sigma, Recto y CTV.
+Una vez visibles, hacer nuevamente clic derecho sobre el histograma y configurar las unidades en Absolute Dose y Absolute Volume.
+A continuación, ingresar a DVH Options → DVH Export Options, establecer un Step size de 10 cGy y confirmar con OK.
+Por último, hacer clic derecho otra vez en el histograma y seleccionar Export DVH in tabular format, guardando el archivo generado (.txt) en la carpeta del paciente.
     <div class="row" style="margin-top:8px">
       <label>Archivo DVH (texto .txt de Eclipse)
         <input class="input" type="file" name="dvhfile" accept=".txt,.dvh,.csv,.log,.dat,.*">
@@ -175,7 +202,7 @@ PAGE = """
       <p class="patient-info"><b>Paciente:</b> {{ patient_name or "—" }} &nbsp;&nbsp; <b>ID:</b> {{ patient_id or "—" }}</p>
     {% endif %}
 
-    <table class="table">
+    <table class="table table-fixed-layout">
   <thead>
     <tr>
       <th>Órgano</th>
@@ -245,7 +272,10 @@ PAGE = """
 
    <div class="section">
   <h3>Paso 2 — Cargar DVH Oncentra</h3>
-  <p class="small">Elegí el número de sesiones y subí un archivo por sesión. El cálculo suma dosis y EQD2 automáticamente.</p>
+  <p class="small">En Oncentra, posicionarse sobre el histograma y abrir la pestaña DVH Table.
+Asegurarse de que las unidades estén configuradas en Dose Absolute y Volume Absolute.
+Luego, hacer clic derecho y seleccionar la opción Dump to file, guardando el archivo generado en la carpeta del paciente correspondiente.
+Por último, elegí el número de planes y subí un archivo por sesión. El cálculo sumará automáticamente las dosis y los valores de EQD2.</p>
   <div class="row">
     <label><strong>¿Cuántos planes se realizarán?</strong>
       <select class="input" name="n_sesiones" id="n_sesiones">
