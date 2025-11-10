@@ -150,8 +150,17 @@ PAGE = """
  <div class="lead">
   <p><strong>Este servidor permite subir el plan de radioterapia externa</strong> con el fin de calcular cuáles serán las dosis máximas permitidas por sesión en la braquiterapia. Una vez que se planifica la braquiterapia, también es posible ingresar los datos correspondientes para obtener la suma total de dosis en EQD2.</p>
 </div>
+  <!-- ===== Selector de origen EBRT ===== -->
+<div class="section card" style="margin-bottom:12px;">
+  <label style="display:flex; gap:.5rem; align-items:center;">
+    <input type="checkbox" id="chk_rtx_local" name="chk_rtx_local">
+    ¿El paciente se realizó radioterapia externa en este centro?
+  </label>
+  <p class="small">Marcado = usamos Paso 1 con export de Eclipse. Desmarcado = carga manual editable.</p>
+</div>
 
   <form method="post" action="/cargar_dvh" enctype="multipart/form-data">
+  <input type="hidden" id="manual_mode" name="manual_mode" value="0">
   <div class="grid">
      <label>Número de sesiones RT externa
        <input class="input" type="number" name="fx_rt" min="1" step="1" value="{{fx_rt}}">
@@ -178,7 +187,7 @@ PAGE = """
     </table>
   </div>
 
-  <div class="section">
+  <div id="bloque-paso1" class="section" style="display:none;">
     <h3>Paso 1 — Cargar DVH Eclipse</h3>
     <p class="small"> Para exportar los datos desde Eclipse, abrir el histograma de dosis en la vista del plan haciendo clic derecho y seleccionando Show → Dose Volume Histogram View. Luego, seleccionar los histogramas correspondientes a Vejiga, Intestino, Sigma, Recto y CTV.
 Una vez visibles, hacer nuevamente clic derecho sobre el histograma y configurar las unidades en Absolute Dose y Absolute Volume.
@@ -193,6 +202,80 @@ Por último, hacer clic derecho otra vez en el histograma y seleccionar Export D
       <button class="btn btn-primary" type="submit">Cargar</button>
     </div>
   </div>
+  <!-- ===== Carga manual cuando NO hay EBRT local ===== -->
+<div id="bloque-manual" class="section" style="display:none;">
+  <h3>Ingreso manual de EBRT (si el paciente no se trató en este centro)</h3>
+
+  <div class="grid">
+    <label>Nombre del paciente
+      <input class="input" type="text" name="patient_name_manual" placeholder="Apellido, Nombre">
+    </label>
+    <label>ID del paciente
+      <input class="input" type="text" name="patient_id_manual" placeholder="ID / HC / DNI">
+    </label>
+  </div>
+
+  <p class="small">Ingrese D2cc (Gy) para OAR y, si lo tienen, D95 (Gy) para CTV. El sistema calcula EQD2 con α/β=3 (OAR) y α/β=10 (CTV) usando las fracciones de RT externa.</p>
+
+  <table class="table table-fixed-layout">
+    <thead>
+      <tr>
+        <th>Órgano</th>
+        <th>Valor (Gy)</th>
+        <th>Tipo</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Vejiga</td>
+        <td><input class="input" type="number" step="0.01" name="manual_VEJIGA" placeholder="D2cc Vejiga (Gy)"></td>
+        <td class="small">D2cc</td>
+      </tr>
+      <tr>
+        <td>Recto</td>
+        <td><input class="input" type="number" step="0.01" name="manual_RECTO" placeholder="D2cc Recto (Gy)"></td>
+        <td class="small">D2cc</td>
+      </tr>
+      <tr>
+        <td>Sigmoide</td>
+        <td><input class="input" type="number" step="0.01" name="manual_SIGMOIDE" placeholder="D2cc Sigmoide (Gy)"></td>
+        <td class="small">D2cc</td>
+      </tr>
+      <tr>
+        <td>Intestino</td>
+        <td><input class="input" type="number" step="0.01" name="manual_INTESTINO" placeholder="D2cc Intestino (Gy)"></td>
+        <td class="small">D2cc</td>
+      </tr>
+      <tr>
+        <td>CTV</td>
+        <td><input class="input" type="number" step="0.01" name="manual_CTV_D95" placeholder="D95 CTV (Gy)"></td>
+        <td class="small">D95 (opcional)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="small">Si es braquiterapia exclusiva, dejá los campos en blanco/cero y continuá al Paso 2.</p>
+</div>
+<script>
+(function(){
+  const chk = document.getElementById('chk_rtx_local');
+  const paso1 = document.getElementById('bloque-paso1');
+  const manual = document.getElementById('bloque-manual');
+  const manualMode = document.getElementById('manual_mode');
+
+  function updateUI(){
+    const onSite = chk.checked;
+    paso1.style.display = onSite ? 'block' : 'none';
+    manual.style.display = onSite ? 'none' : 'block';
+    manualMode.value = onSite ? '0' : '1';
+  }
+  chk.addEventListener('change', updateUI);
+  // Estado inicial: desmarcado (muestra Manual)
+  chk.checked = false;
+  updateUI();
+})();
+</script>
+
  </form>
 
   {% if step1 %}
@@ -287,7 +370,7 @@ Por último, elegí el número de planes y subí un archivo por sesión. El cál
   </div>
 
   <div id="sesion-1" class="card" style="margin-top:12px">
-    <h4>Sesión 1</h4>
+    <h4>Plan 1</h4>
     <div class="grid">
       <label>Archivo Oncentra (txt)
         <input class="input" type="file" name="hdrfile_1" accept=".txt,.dvh,.csv,.log,.dat,.*" required>
@@ -296,7 +379,7 @@ Por último, elegí el número de planes y subí un archivo por sesión. El cál
   </div>
 
   <div id="sesion-2" class="card" style="margin-top:12px; display:none">
-    <h4>Sesión 2</h4>
+    <h4>Plan 2</h4>
     <div class="grid">
       <label>Archivo Oncentra (txt)
         <input class="input" type="file" name="hdrfile_2" accept=".txt,.dvh,.csv,.log,.dat,.*">
@@ -305,7 +388,7 @@ Por último, elegí el número de planes y subí un archivo por sesión. El cál
   </div>
 
   <div id="sesion-3" class="card" style="margin-top:12px; display:none">
-    <h4>Sesión 3</h4>
+    <h4>Plan 3</h4>
     <div class="grid">
       <label>Archivo Oncentra (txt)
         <input class="input" type="file" name="hdrfile_3" accept=".txt,.dvh,.csv,.log,.dat,.*">
@@ -664,6 +747,19 @@ def home():
 def cargar_dvh():
     fx_rt = int(fnum(request.form.get("fx_rt"), 25))
     n_hdr = int(fnum(request.form.get("n_hdr"), 3))
+    # ===== NUEVO: detectar modo manual y tomar datos =====
+    manual_mode = (request.form.get("manual_mode") == "1")
+
+    patient_name_manual = (request.form.get("patient_name_manual") or "").strip() or None
+    patient_id_manual   = (request.form.get("patient_id_manual") or "").strip() or None
+
+    manual_vals = {
+      "VEJIGA":   fnum(request.form.get("manual_VEJIGA"),   None),
+      "RECTO":    fnum(request.form.get("manual_RECTO"),    None),
+      "SIGMOIDE": fnum(request.form.get("manual_SIGMOIDE"), None),
+      "INTESTINO":fnum(request.form.get("manual_INTESTINO"),None),
+    }
+    manual_ctv_d95 = fnum(request.form.get("manual_CTV_D95"), None)
 
     def _clamp(x, lo=0.0, hi=500.0):
         try:
@@ -687,8 +783,19 @@ def cargar_dvh():
     ctv_d95_gy = None
     tables = {}
 
-    file = request.files.get("dvhfile")
-    if file and file.filename:
+    if manual_mode:
+       # ===== MODO MANUAL =====
+      patient_name = patient_name_manual
+      patient_id   = patient_id_manual
+      for organ in ("VEJIGA","RECTO","SIGMOIDE","INTESTINO"):
+          val = manual_vals.get(organ)
+          d2_autofill[organ] = (round(val, 2) if (val is not None and val > 0) else None)
+      if manual_ctv_d95 is not None and manual_ctv_d95 > 0:
+        ctv_d95_gy = round(manual_ctv_d95, 2)
+    else:
+    # ===== MODO ARCHIVO (Paso 1 estándar) =====
+      file = request.files.get("dvhfile")
+      if file and file.filename:
         raw = file.read().decode("latin1", errors="ignore")
         txt = normalize_labels(raw)
         patient_name, patient_id = parse_patient_meta(txt)
@@ -713,6 +820,7 @@ def cargar_dvh():
             d95, Vtot, Vtarget = dose_at_percent_volume(tables.get(nm_ctv, []), 95.0)
             if d95 is not None:
                 ctv_d95_gy = round(d95, 2)
+
 
     results = []
     Row = lambda **k: type("Row", (), k)
@@ -749,8 +857,7 @@ def cargar_dvh():
     # poner CTV primero, luego Recto, Vejiga, Sigmoide, Intestino
     order_map = {"CTV": 0, "Recto": 1, "Vejiga": 2, "Sigmoide": 3, "Intestino": 4}
     results.sort(key=lambda r: order_map.get(getattr(r, "roi", ""), 999))
-
-
+    
     return render_template_string(
         PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr, step1=True, results=results,
         patient_name=patient_name, patient_id=patient_id, limits=user_limits,
