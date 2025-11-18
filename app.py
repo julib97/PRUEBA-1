@@ -1,5 +1,12 @@
-import math, re
-from flask import Flask, request, render_template_string
+import math, re, io, json, os, tempfile
+from flask import Flask, request, render_template_string, send_file
+from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
+from openpyxl.styles import Alignment
+from openpyxl.styles import Font
+import win32com.client as win32
+import pythoncom
+
 
 app = Flask(__name__)
 
@@ -204,7 +211,7 @@ Por último, hacer clic derecho otra vez en el histograma y seleccionar Export D
   </div>
   <!-- ===== Carga manual cuando NO hay EBRT local ===== -->
 <div id="bloque-manual" class="section" style="display:none;">
-  <h3>Ingreso manual de EBRT (si el paciente no se trató en este centro)</h3>
+  <h3>Ingreso manual de RT externa (si el paciente no se trató en este centro)</h3>
 
   <div class="grid">
     <label>Nombre del paciente
@@ -249,7 +256,7 @@ Por último, hacer clic derecho otra vez en el histograma y seleccionar Export D
       <tr>
         <td>CTV</td>
         <td><input class="input" type="number" step="0.01" name="manual_CTV_D95" placeholder="D95 CTV (Gy)"></td>
-        <td class="small">D95 (opcional)</td>
+        <td class="small">D95</td>
       </tr>
     </tbody>
   </table>
@@ -355,10 +362,9 @@ Por último, hacer clic derecho otra vez en el histograma y seleccionar Export D
 
    <div class="section">
   <h3>Paso 2 — Cargar DVH Oncentra</h3>
-  <p class="small">En Oncentra, posicionarse sobre el histograma y abrir la pestaña DVH Table.
-Asegurarse de que las unidades estén configuradas en Dose Absolute y Volume Absolute.
-Luego, hacer clic derecho y seleccionar la opción Dump to file, guardando el archivo generado en la carpeta del paciente correspondiente.
-Por último, elegí el número de planes y subí un archivo por sesión. El cálculo sumará automáticamente las dosis y los valores de EQD2.</p>
+  <p class="small">En Oncentra, posicionarse sobre el histograma y abrir la ventana de propiedades y en DVH, asegurarse de que las unidades estén configuradas en Dose Absolute y Volume Absolute.
+Luego, posicionarse sobre el histograma, hacer clic derecho y seleccionar la opción Dump to file, guardando el archivo generado en la carpeta del paciente correspondiente.
+Por último, elegir el número de planes y subir un archivo por sesión. El cálculo sumará automáticamente las dosis y los valores de EQD2.</p>
   <div class="row">
     <label><strong>¿Cuántos planes se realizarán?</strong>
       <select class="input" name="n_sesiones" id="n_sesiones">
@@ -527,6 +533,15 @@ Por último, elegí el número de planes y subí un archivo por sesión. El cál
   </div>
 {% endif %}
 {% endif %} </div></div></body></html>
+{% if plan_real %}
+  <div class="section" style="margin-top:16px">
+    <form method="post" action="/export_carton">
+      <input type="hidden" name="payload" value='{{ export_data|tojson }}'>
+      <button class="btn btn-primary" type="submit">Exportar cartón dosimétrico </button>
+    </form>
+    <p class="small">Se exporta con el formato de “Cartón dosimétrico.xlsx” y los valores de la tabla de arriba.</p>
+  </div>
+{% endif %}
 """
 
 # ====== Física ======
@@ -1107,7 +1122,7 @@ def calcular_hdr():
     # 4) Reconstruir Tabla 1 (results)
     # results ya está inicializado con results_preview, lo usamos para el render final
 
-    # 5) Render final
+      # 5) Render final
     ctv_volume_total = None
     ctv_d90_gy = None
     ctv_d90_cgy = None
@@ -1120,15 +1135,258 @@ def calcular_hdr():
     }
 
     order_display2 = ["CTV", "Recto", "Vejiga", "Sigmoide", "Intestino"]
-    results.sort(key=lambda r: order_display2.index(r.roi) if getattr(r, "roi", None) in order_display2 else 999)
+    results.sort(
+        key=lambda r: order_display2.index(r.roi)
+        if getattr(r, "roi", None) in order_display2 else 999
+    )
+
+    # --- Helper para floats seguros ---
+    def _sf(x):
+        try:
+            if x is None:
+                return None
+            return float(x)
+        except Exception:
+            return None
+
+    # --- Datos para el cartón dosimétrico (TABLA 3 + RT externa) ---
+    export_data = {
+        "patient_name": patient_name,
+        "patient_id": patient_id,
+        "fx_rt": fx_rt,
+        "n_hdr": n_hdr,
+        # Resumen dosimétrico (EQD2 EBRT / HDR / TOTAL)
+        "summary": [
+            {
+                "roi": item["roi"],
+                "eqd2_ebrt": _sf(item["eqd2_ebrt"]),
+                "eqd2_hdr":  _sf(item["eqd2_hdr"]),
+                "eqd2_total": _sf(item["eqd2_total"]),
+            }
+            for item in plan_summary
+        ],
+        # Datos de RT externa de la TABLA 1 (RT Externa (Gy))
+        "ebrt": [
+            {
+                "roi": ("CTV" if getattr(r, "is_ctv_d95", False) else getattr(r, "roi", "")),
+                "D_ext": _sf(getattr(r, "D_ext", None)),      # RT Externa (Gy) de la Tabla 1
+                "eqd2_ext": _sf(getattr(r, "eqd2_ext", None))
+            }
+            for r in results
+        ],
+    }
 
     return render_template_string(
         PAGE, css=CSS, fx_rt=fx_rt, n_hdr=n_hdr, step1=True,
         results=results, plan_real=plan, plan_summary=plan_summary,
         patient_name=patient_name, patient_id=patient_id,
-        ctv_volume_total=ctv_volume_total, ctv_d90_gy=ctv_d90_gy, ctv_d90_cgy=ctv_d90_cgy,
-        limits=limits_caps
+        ctv_volume_total=ctv_volume_total,
+        ctv_d90_gy=ctv_d90_gy, ctv_d90_cgy=ctv_d90_cgy,
+        limits=limits_caps,
+        export_data=export_data,
+   )
+
+from openpyxl.cell.cell import MergedCell  # ponelo arriba del archivo si querés
+
+@app.route("/export_carton", methods=["POST"])
+def export_carton():
+    # 1) Recuperar data desde el hidden
+    payload = request.form.get("payload", "")
+    if not payload:
+        return "Sin datos para exportar", 400
+
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return "Payload inválido", 400
+
+    # --- Datos que vienen del render (export_data) ---
+    patient_name = data.get("patient_name") or ""
+    patient_id   = data.get("patient_id") or ""
+    fx_rt        = int(data.get("fx_rt") or 0)
+    n_hdr        = int(data.get("n_hdr") or 0)
+    summary      = data.get("summary") or []
+    ebrt         = data.get("ebrt") or []
+
+    # === HELPER PARA REDONDEAR (2 decimales) ===
+    def r2(x):
+        """Redondea a 2 decimales, o devuelve None si no aplica."""
+        try:
+            if x is None:
+                return None
+            return round(float(x), 2)
+        except Exception:
+            return x
+
+    # === MAPA PARA RT EXTERNA (TABLA 1) ===
+    # Cada entrada: roi -> {"roi": ..., "D_ext": ..., "eqd2_ext": ...}
+    ebrt_map = {}
+    for row in ebrt:
+        roi = (row.get("roi") or "").upper()
+        if not roi:
+            continue
+        ebrt_map[roi] = row
+
+    # 2) Abrir plantilla EXACTA del cartón (con logos y todo)
+    template_path = os.path.join(os.path.dirname(__file__), "Cartón dosimétrico.xlsx")
+    if not os.path.exists(template_path):
+        return f"No se encontró la plantilla en {template_path}", 500
+
+    wb = load_workbook(template_path)
+    # Ajustá el nombre de la hoja según tu archivo
+    ws = wb["Hoja1 (2)"] if "Hoja1 (2)" in wb.sheetnames else wb.active
+
+    # --- Armar Apellido / Nombre desde "Apellido, Nombre" ---
+    full_name = patient_name.strip()
+    apellido = ""
+    nombre = ""
+    if "," in full_name:
+        parts = [p.strip() for p in full_name.split(",", 1)]
+        apellido, nombre = parts[0], parts[1]
+    elif full_name:
+        parts = full_name.split()
+        apellido = parts[0]
+        nombre = " ".join(parts[1:])
+
+    # Apellido / Nombre: mayúsculas y alineados a la izquierda (pegaditos)
+    ws["C8"] = (apellido or full_name).upper()
+    ws["C9"] = (nombre or "").upper()
+
+    left_align = Alignment(horizontal="left")
+    ws["C8"].alignment = left_align
+    ws["C9"].alignment = left_align
+    center_align = Alignment(horizontal="center")
+
+    # ID en sector "Código de barras", manejando celdas combinadas
+    cell = ws["H3"]
+    if isinstance(cell, MergedCell):
+        for merged_range in ws.merged_cells.ranges:
+            if cell.coordinate in merged_range:
+                top_left = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+                top_left.value = patient_id
+                break
+    else:
+        cell.value = patient_id
+
+    # === 2. Tratamiento de Radioterapia externa ===
+    # C12: "Dosis total"
+    # C13: "Fracciones"
+    # C14: "CTV 95% [Gy]"
+    # I13–I16: Dosis (Gy) por órgano (Recto, Vejiga, Sigmoide, Intestino)
+
+     # Fracciones RT externa (número entero)
+    ws["C13"] = fx_rt
+    ws["C13"].alignment = center_align
+
+    # CTV de RT externa (desde TABLA 1: RT Externa (Gy))
+    ctv_row = ebrt_map.get("CTV")
+    if ctv_row:
+        dose_ctv = r2(ctv_row.get("D_ext"))
+        ws["C12"] = dose_ctv      # Dosis total
+        ws["C12"].alignment = center_align
+
+        ws["C14"] = dose_ctv      # CTV 95% [Gy]
+        ws["C14"].alignment = center_align
+
+
+    # Órganos en la tabla derecha
+   
+    oar_rows = [
+        ("RECTO",    13),
+        ("VEJIGA",   14),
+        ("SIGMOIDE", 15),
+        ("INTESTINO",16),
+    ]
+    for roi_key, row_idx in oar_rows:
+        row = ebrt_map.get(roi_key)
+        if row:
+            cell_oar = ws.cell(row=row_idx, column=9)
+            cell_oar.value = r2(row.get("D_ext"))  # I = col 9
+            cell_oar.alignment = center_align
+
+
+    # Podemos guardar también el número de sesiones HDR (si tu template lo usa)
+    # Ejemplo: C19
+    ws["C19"] = n_hdr
+    ws["C19"].alignment = center_align
+
+    # === 4. Registro de dosis total (EQD2) ===
+    # Fila 35: CTV
+    # Fila 36: Recto
+    # Fila 37: Vejiga
+    # Fila 38: Sigma
+    # Fila 39: Intestino
+    row_map = {
+        "CTV": 35,
+        "RECTO": 36,
+        "VEJIGA": 37,
+        "SIGMOIDE": 38,
+        "INTESTINO": 39,
+    }
+
+    for item in summary:
+        roi_raw = (item.get("roi") or "").upper()
+        roi_key = roi_raw.replace(" (D90)", "")
+        row_idx = row_map.get(roi_key)
+        if not row_idx:
+            continue
+
+        c_ebrt = ws.cell(row=row_idx, column=3)
+        c_ebrt.value = r2(item.get("eqd2_ebrt"))
+        c_ebrt.alignment = center_align
+
+        c_hdr = ws.cell(row=row_idx, column=4)
+        c_hdr.value = r2(item.get("eqd2_hdr"))
+        c_hdr.alignment = center_align
+
+        c_sum = ws.cell(row=row_idx, column=7)
+        c_sum.value = r2(item.get("eqd2_total"))   # EQD2 TOTAL de la tabla 3
+
+
+    # 5) Guardar a un xlsx temporal y convertirlo a PDF con Excel
+    with tempfile.TemporaryDirectory() as tmpdir:
+        xlsx_path = os.path.join(tmpdir, "carton_temp.xlsx")
+        wb.save(xlsx_path)
+
+        pdf_bytes = None
+        pythoncom.CoInitialize()
+        try:
+            excel = win32.gencache.EnsureDispatch("Excel.Application")
+            excel.Visible = False
+            try:
+                wb_excel = excel.Workbooks.Open(xlsx_path)
+                pdf_path = os.path.join(tmpdir, "carton_temp.pdf")
+                # 0 = PDF
+                wb_excel.ExportAsFixedFormat(0, pdf_path)
+                wb_excel.Close(False)
+            finally:
+                excel.Quit()
+
+            if not os.path.exists(pdf_path):
+                return "No se generó el PDF", 500
+
+            with open(pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+        finally:
+            pythoncom.CoUninitialize()
+
+    filename = f"Carton_{(patient_id or patient_name or 'paciente').replace(' ', '_')}.pdf"
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf",
     )
+
+    filename = f"Carton_{(patient_id or patient_name or 'paciente').replace(' ', '_')}.pdf"
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf",
+    )
+
+
 if __name__ == "__main__":
     print(">> Booting Flask on http://127.0.0.1:5000  (use_reloader=False)")
     try:
