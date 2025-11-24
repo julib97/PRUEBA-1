@@ -1174,6 +1174,13 @@ def calcular_hdr():
             }
             for r in results
         ],
+        "hdr_fractions": [
+            {
+                "roi": getattr(r, "roi", ""),
+                "eqd2s": [ _sf(x) for x in getattr(r, "eqd2s", []) ],
+            }
+            for r in plan
+        ],
     }
 
     return render_template_string(
@@ -1207,6 +1214,8 @@ def export_carton():
     n_hdr        = int(data.get("n_hdr") or 0)
     summary      = data.get("summary") or []
     ebrt         = data.get("ebrt") or []
+    hdr_fractions = data.get("hdr_fractions") or []
+
 
     # === HELPER PARA REDONDEAR (2 decimales) ===
     def r2(x):
@@ -1280,13 +1289,14 @@ def export_carton():
 
     # CTV de RT externa (desde TABLA 1: RT Externa (Gy))
     ctv_row = ebrt_map.get("CTV")
+    # === Dosis total RT externa = número de fracciones × 2 Gy ===
+    ws["C12"] = round(fx_rt * 2, 2)
+    ws["C12"].alignment = center_align
+    
     if ctv_row:
-        dose_ctv = r2(ctv_row.get("D_ext"))
-        ws["C12"] = dose_ctv      # Dosis total
-        ws["C12"].alignment = center_align
-
-        ws["C14"] = dose_ctv      # CTV 95% [Gy]
-        ws["C14"].alignment = center_align
+      dose_ctv = r2(ctv_row.get("D_ext"))
+      ws["C14"] = dose_ctv      # CTV 95% [Gy]
+      ws["C14"].alignment = center_align
 
 
     # Órganos en la tabla derecha
@@ -1304,11 +1314,65 @@ def export_carton():
             cell_oar.value = r2(row.get("D_ext"))  # I = col 9
             cell_oar.alignment = center_align
 
+    # === 3. Completar Tabla de Tratamiento HDR (EQD2 por sesión) ===
 
-    # Podemos guardar también el número de sesiones HDR (si tu template lo usa)
-    # Ejemplo: C19
-    ws["C19"] = n_hdr
-    ws["C19"].alignment = center_align
+    # Estas filas deben coincidir con tu plantilla EXACTA.
+    # Ajustalas si fuera necesario.
+    row_map_hdr = {
+      "CTV": 24,        # fila donde está "CTV D90%"
+      "Recto": 25,
+      "Vejiga": 26,
+      "Sigmoide": 27,
+      "Intestino": 28,
+    }
+
+    # Columna donde empiezan "Sesión 1", "Sesión 2", etc.
+    # Por ejemplo si Sesión 1 está en la columna C → column=3
+    col_start = 3   # AJUSTAR si tu plantilla difiere
+
+    # Procesar HDR fracción por fracción (EQD2 1, EQD2 2…)
+    hdr_map = { (x["roi"] or "").upper(): x for x in hdr_fractions }
+
+    def match_roi(roi_excel):
+        roi_excel = roi_excel.upper()
+        for roi_hdr, data in hdr_map.items():
+            if roi_excel == "CTV" and "CTV" in roi_hdr:
+                return data
+            if roi_excel != "CTV" and roi_excel in roi_hdr:
+                return data
+        return None
+
+    # columnas reales de Sesión 1..4 en tu plantilla: C, D, F, H
+    session_cols = [3, 4, 6, 8]  # C, D, F, H
+
+    for roi_excel, row_idx in row_map_hdr.items():
+      item = match_roi(roi_excel)
+      eqd2s = [r2(v) for v in item["eqd2s"]] if item else []
+
+      for j in range(4):  # Sesión 1..4
+        col = session_cols[j]      # ← en vez de col_start + j
+        cell = ws.cell(row=row_idx, column=col)
+
+        # Si cae en una celda combinada, redirigimos a la tope-izquierda
+        if isinstance(cell, MergedCell):
+            for merged_range in ws.merged_cells.ranges:
+                if cell.coordinate in merged_range:
+                    cell = ws.cell(
+                        row=merged_range.min_row,
+                        column=merged_range.min_col
+                    )
+                    break
+
+        # j = 0 → EQD2 1, j = 1 → EQD2 2, j = 2 → EQD2 3, j = 3 → EQD2 4
+        if j < len(eqd2s) and eqd2s[j] is not None:
+            cell.value = eqd2s[j]
+        else:
+            cell.value = "-"   # guion cuando no existe sesión
+
+        cell.alignment = center_align
+
+
+    
 
     # === 4. Registro de dosis total (EQD2) ===
     # Fila 35: CTV
